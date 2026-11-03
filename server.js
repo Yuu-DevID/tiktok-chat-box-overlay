@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { TikTokLiveConnection, WebcastEvent } = require('tiktok-live-connector');
+const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
 const { WebSocketServer } = require('ws');
 const http = require('http');
 const https = require('https');
@@ -31,6 +31,11 @@ let ttsEnabled = true;
 // TTS playback speed (1.0 = normal, >1 = faster, <1 = slower), same
 // in-memory/broadcast convention as ttsProvider and ttsEnabled above.
 let ttsSpeed = 1.5;
+
+// Fraction of Comments (0..1) that TTS reads aloud after the skip filters;
+// the rest are only shown. Lets a busy chat be read "sometimes" instead of
+// queueing every line. Same in-memory/broadcast convention as above.
+let ttsReadChance = 1;
 
 // Whether the server currently has a live TikTok room connection (real mode)
 // or is generating fake events (mock mode, always "connected"). Distinct from
@@ -164,23 +169,6 @@ const MOCK_LEADERBOARD = [
   { name: 'lek_fc', amount: 100 },
 ];
 
-// EasyDonate's exact response shape isn't public without a real API key to test
-// against, so this normalizes a handful of plausible shapes (array directly,
-// or nested under data/items/leaderboard) and field name variants into
-// { name, amount }[] the widget can render regardless of which one shows up.
-function normalizeLeaderboard(payload) {
-  const list = Array.isArray(payload)
-    ? payload
-    : payload?.data?.items || payload?.data || payload?.leaderboard || payload?.items || [];
-  return list
-    .map((entry) => ({
-      name: entry.name || entry.nickname || entry.donorName || entry.donor?.name || 'ไม่ระบุชื่อ',
-      amount: Number(entry.amount ?? entry.total ?? entry.sum ?? entry.totalAmount ?? 0),
-    }))
-    .filter((entry) => entry.amount > 0)
-    .sort((a, b) => b.amount - a.amount);
-}
-
 // Real donors who aren't tracked by the EasyDonate API but should still show
 // up at the right rank -- kept in a gitignored file (not the repo) since it's
 // this streamer's own donor data, not something to ship in source control.
@@ -195,17 +183,40 @@ function loadExtraDonors() {
   }
 }
 
+// Spellings of one donor's name that should count as a single entry, e.g.
+// { "Chi": "ชิ" } folds "Chi" into "ชิ". Matched case-insensitively. Gitignored
+// for the same reason as extra-donors.json.
+const DONOR_ALIASES_FILE = process.env.DONOR_ALIASES_FILE || path.join(__dirname, 'donor-aliases.json');
+
+function loadDonorAliases() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(DONOR_ALIASES_FILE, 'utf8'));
+    const aliases = new Map();
+    for (const [alias, name] of Object.entries(parsed || {})) {
+      aliases.set(alias.trim().toLowerCase(), name);
+    }
+    return aliases;
+  } catch {
+    return new Map();
+  }
+}
+
 function withExtraEntry(list) {
-  const merged = [...list];
-  for (const extra of loadExtraDonors()) {
-    const existing = merged.find((entry) => entry.name === extra.name);
+  const aliases = loadDonorAliases();
+  const merged = new Map();
+  for (const entry of [...list, ...loadExtraDonors()]) {
+    const name = aliases.get(String(entry.name).trim().toLowerCase()) || String(entry.name).trim();
+    // Case-insensitive key so "skyfall" and "Skyfall" sum into one entry,
+    // shown with whichever spelling came first (the higher API amount).
+    const key = name.toLowerCase();
+    const existing = merged.get(key);
     if (existing) {
-      existing.amount += extra.amount;
+      existing.amount += Number(entry.amount) || 0;
     } else {
-      merged.push(extra);
+      merged.set(key, { name, amount: Number(entry.amount) || 0 });
     }
   }
-  return merged.sort((a, b) => b.amount - a.amount);
+  return [...merged.values()].sort((a, b) => b.amount - a.amount);
 }
 
 function sendJson(res, statusCode, data) {
@@ -227,7 +238,7 @@ const stats = {
 // Called from broadcast() so every chat/gift/member path -- mock and real
 // alike -- updates the same counters without each call site remembering to.
 function trackStats(message) {
-  if (message.type === 'chat') {
+  if (message.type === 'chat' || message.type === 'emote') {
     stats.comments++;
     if (message.user) stats.viewers.add(message.user);
   } else if (message.type === 'gift') {
@@ -254,6 +265,45 @@ function buildSummaryPayload() {
     viewers: stats.viewers.size,
     topGifter,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Profanity filter: a matching Comment is dropped entirely -- not shown on the
+// chat overlay, not read by TTS. Targets "ควย" and its dodge spellings
+// (ขวย, ข็วย, ฆวย, ฆวษ์ย, ค ว ย, ค.ว.ย, ควววย ...) and "หี" with its
+// dodges (หิ๋, หี่, แหย่หิ ...).
+// ---------------------------------------------------------------------------
+
+// Spaces, zero-width chars and punctuation people wedge between letters.
+const PROFANITY_SEPARATORS = /[\s​-‍﻿.,\-_*~!?'"`|/\\+=:;()[\]{}<>^]+/g;
+// [คขฆฅ] + ว + optional silent letter (ษ์, ส์ ...) + ย, with stray tone
+// marks / ็ / ์ allowed around ว (ข็วย, ค่วย, คว์ย);
+// or หี / หิ + tone mark (หิ๋) not followed by a consonant (keeps หีบ, หิ้ว);
+// or แหย่ + หิ/หี in any form;
+// or เงี่ยน with a silent ห / swapped tone (เหงี้ยน) -- tone mark required so
+// the name เหงียน (Nguyen) still passes;
+// or น้ำแตก and its misspellings (น้ามแตค);
+// or ควย with ย swapped for a silent letter (ซวษ์, ขวษ์) -- plain ซวย stays allowed;
+// or อม + ควย/ซวย;
+// or หี spelled with a wedged silent letter (ฮฐ์ี, อฐ์ี, หฐ์ี), or with the
+// vowel dropped (หด์);
+// or ตูด spelled with ฏ (ตูฏ, ฏูด), or เลีย/เรีย + ตูด;
+// or จับนม, or นม with a stray ์ (นม์).
+const PROFANITY_PATTERN =
+  /[คขฆฅ][็่-๋]*ว[็่-์]*(?:[ก-ฮ]์)?ย|ห(?:ี[่-๋]?|ิ[่-๋])(?![ก-ฮ])|แหย่ห[ิี]|เห?งี[่-๋]ยน|น้[ำา]ม?แต[กค]|[คขฆฅซ][็่-๋]*ว[็่-๋]*[ก-ฮ]์|อม[คขฆฅซ][็่-๋]*ว[็่-๋]*ย|[หฮอ][ก-ฮ]์[ิี]|ห[ก-ฮ]์|ฏู[ดฏ]|[ตฏ]ูฏ|เ[ลร]ีย[ตฏ]ู[ดฏ]|จับนม|นม์/;
+// Real words that contain the pattern and must not be blocked.
+const PROFANITY_ALLOWED = /ขวยเขิน|เขินขวย/g;
+// Gujarati letters look like Thai (ખૂઐ ~ ขวย, યેત્ ~ เย็ด) and get used to
+// spell profanity past the Thai patterns; no real viewer chats in Gujarati.
+const PROFANITY_LOOKALIKE_SCRIPT = /[઀-૿]/;
+
+function isProfaneComment(text) {
+  if (PROFANITY_LOOKALIKE_SCRIPT.test(String(text || ''))) return true;
+  const normalized = String(text || '')
+    .replace(PROFANITY_SEPARATORS, '')
+    .replace(/(.)\1+/g, '$1')
+    .replace(PROFANITY_ALLOWED, '');
+  return PROFANITY_PATTERN.test(normalized);
 }
 
 
@@ -527,39 +577,64 @@ async function addFillerSong(link) {
 // Proxied (not called directly from the browser) so the EasyDonate API key
 // never ships to the client. Falls back to mock data when no key is
 // configured, so the /top-donate widget works out of the box.
-function handleLeaderboard(req, res) {
+// EasyDonate's leaderboard widget endpoint only returns as many donors as the
+// widget's dashboard "count" setting (5 by default) and keys them by exact
+// name, so "Skyfall" and "skyfall" split and anyone past rank 5 is lost.
+// Building the board from the full donation history instead gives every donor,
+// which withExtraEntry then merges by name/alias.
+const DONATIONS_PAGE_SIZE = 100;
+
+function easyDonateGet(apiPath) {
+  return new Promise((resolve, reject) => {
+    https
+      .get(
+        `${EASYDONATE_API_BASE_URL}${apiPath}`,
+        { headers: { Authorization: `Bearer ${EASYDONATE_API_KEY}` } },
+        (apiRes) => {
+          let body = '';
+          apiRes.on('data', (chunk) => (body += chunk));
+          apiRes.on('end', () => {
+            if (apiRes.statusCode !== 200) {
+              reject(new Error(`EasyDonate ${apiPath} returned ${apiRes.statusCode}: ${body}`));
+              return;
+            }
+            try {
+              resolve(JSON.parse(body));
+            } catch (err) {
+              reject(new Error(`EasyDonate ${apiPath} parse error: ${err.message}`));
+            }
+          });
+        }
+      )
+      .on('error', reject);
+  });
+}
+
+async function fetchDonationTotals() {
+  const donations = [];
+  for (let page = 1, totalPage = 1; page <= totalPage; page++) {
+    const { data } = await easyDonateGet(`/api/v1/donations?size=${DONATIONS_PAGE_SIZE}&page=${page}`);
+    totalPage = data?.totalPage || 1;
+    donations.push(...(data?.histories || []));
+  }
+  return donations
+    .filter((donation) => donation.status === 'SUCCESS')
+    .map((donation) => ({ name: donation.donatorName || 'ไม่ระบุชื่อ', amount: Number(donation.amount) || 0 }));
+}
+
+async function handleLeaderboard(req, res) {
   if (!EASYDONATE_API_KEY) {
     sendJson(res, 200, { leaderboard: withExtraEntry(MOCK_LEADERBOARD), mock: true });
     return;
   }
 
-  https
-    .get(
-      `${EASYDONATE_API_BASE_URL}/api/v1/widgets/leaderboard`,
-      { headers: { Authorization: `Bearer ${EASYDONATE_API_KEY}` } },
-      (apiRes) => {
-        let body = '';
-        apiRes.on('data', (chunk) => (body += chunk));
-        apiRes.on('end', () => {
-          if (apiRes.statusCode !== 200) {
-            console.error('EasyDonate leaderboard error:', apiRes.statusCode, body);
-            sendJson(res, 502, { error: 'EasyDonate API error', status: apiRes.statusCode });
-            return;
-          }
-          try {
-            const leaderboard = withExtraEntry(normalizeLeaderboard(JSON.parse(body)));
-            sendJson(res, 200, { leaderboard, mock: false });
-          } catch (err) {
-            console.error('EasyDonate leaderboard parse error:', err.message);
-            sendJson(res, 502, { error: 'Failed to parse EasyDonate response' });
-          }
-        });
-      }
-    )
-    .on('error', (err) => {
-      console.error('EasyDonate leaderboard request error:', err.message);
-      sendJson(res, 502, { error: 'EasyDonate request failed' });
-    });
+  try {
+    const leaderboard = withExtraEntry(await fetchDonationTotals());
+    sendJson(res, 200, { leaderboard, mock: false });
+  } catch (err) {
+    console.error('EasyDonate leaderboard error:', err.message);
+    sendJson(res, 502, { error: 'EasyDonate request failed' });
+  }
 }
 
 // Serves each overlay widget's page (see PAGE_ROUTES below) plus static
@@ -666,6 +741,7 @@ const httpServer = http.createServer((req, res) => {
     '/summary': 'widgets/summary/summary.html',
     '/timer': 'widgets/timer/timer.html',
     '/music': 'widgets/music/music.html',
+    '/follow': 'widgets/follow/follow.html',
   };
   const page = PAGE_ROUTES[reqUrl.pathname];
   if (!page) {
@@ -691,14 +767,66 @@ httpServer.listen(HTTP_PORT, () => {
 const wss = new WebSocketServer({ port: WS_PORT });
 console.log(`WebSocket server listening on ws://localhost:${WS_PORT}`);
 
+// Live log: one JSON object per line in logs/live-YYYY-MM-DD.jsonl, written
+// for the whole session so a "my comment never showed up" report can be
+// traced after the fact. Each comment can be followed through three stages:
+//   tiktok-raw  -- what arrived on TikTok's websocket (before the connector
+//                  decides what to do with it)
+//   broadcast   -- what the server sent to overlays, with a `logId`
+//   overlay     -- what an overlay page reports it actually rendered (same `logId`)
+// A comment missing from tiktok-raw never reached us at all.
+const LIVE_LOG_DIR = path.join(__dirname, 'logs');
+let liveLogStream = null;
+let liveLogDate = null;
+
+function liveLog(stage, data) {
+  const now = new Date();
+  // Local date, not UTC, so one evening's stream lands in one file.
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  try {
+    if (date !== liveLogDate) {
+      if (liveLogStream) liveLogStream.end();
+      fs.mkdirSync(LIVE_LOG_DIR, { recursive: true });
+      liveLogStream = fs.createWriteStream(path.join(LIVE_LOG_DIR, `live-${date}.jsonl`), { flags: 'a' });
+      liveLogStream.on('error', (err) => console.error('[live-log] write failed:', err.message));
+      liveLogDate = date;
+    }
+    liveLogStream.write(JSON.stringify({ t: now.toISOString(), stage, ...data }) + '\n');
+  } catch (err) {
+    console.error('[live-log] failed:', err.message);
+  }
+}
+
+// Only these reach the log from broadcast(); state syncs (timer, songs, tts
+// settings) are resent constantly and say nothing about missing comments.
+const LOGGED_BROADCAST_TYPES = new Set(['chat', 'emote', 'gift']);
+let nextLogId = 1;
+
 function broadcast(payload) {
   trackStats(payload);
+  let delivered = 0;
+  if (LOGGED_BROADCAST_TYPES.has(payload.type)) {
+    payload = { ...payload, logId: nextLogId++ };
+  }
   const message = JSON.stringify(payload);
   wss.clients.forEach((client) => {
     if (client.readyState === client.OPEN) {
       client.send(message);
+      delivered++;
     }
   });
+  if (payload.logId) {
+    liveLog('broadcast', {
+      logId: payload.logId,
+      type: payload.type,
+      user: payload.user,
+      nickname: payload.nickname,
+      comment: payload.comment,
+      giftName: payload.giftName,
+      emoteCount: payload.emoteImages?.length,
+      clients: delivered,
+    });
+  }
 }
 
 // In-memory only, same as `stats` -- resets on server restart. `endsAt` (not
@@ -730,7 +858,13 @@ setInterval(() => {
 
 // The panel widget sends messages upstream: pin/unpin a comment, request the
 // current session stats snapshot to show on /summary, or control the BRB timer.
+let nextClientId = 1;
+
 wss.on('connection', (ws) => {
+  const clientId = nextClientId++;
+  liveLog('ws-client', { clientId, event: 'connected', total: wss.clients.size });
+  ws.on('close', () => liveLog('ws-client', { clientId, event: 'closed', total: wss.clients.size }));
+
   // Sync-on-connect: without this, reloading /timer mid-countdown (or opening
   // /panel late) would show idle/zero until the next control action instead
   // of picking up wherever the countdown actually is.
@@ -738,6 +872,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'tts-provider-state', provider: ttsProvider }));
   ws.send(JSON.stringify({ type: 'tts-enabled-state', enabled: ttsEnabled }));
   ws.send(JSON.stringify({ type: 'tts-speed-state', speed: ttsSpeed }));
+  ws.send(JSON.stringify({ type: 'tts-read-chance-state', chance: ttsReadChance }));
   ws.send(JSON.stringify(tiktokConnectionPayload()));
   ws.send(JSON.stringify(songStatePayload()));
 
@@ -748,7 +883,12 @@ wss.on('connection', (ws) => {
     } catch {
       return;
     }
-    if (message.type === 'pin' || message.type === 'unpin') {
+    if (message.type === 'overlay-log') {
+      // Reports from overlay pages (rendered / handler error / page hello);
+      // logged only, never rebroadcast.
+      const { type, ...report } = message;
+      liveLog('overlay', { clientId, ...report });
+    } else if (message.type === 'pin' || message.type === 'unpin') {
       broadcast(message);
     } else if (message.type === 'show-summary') {
       broadcast(buildSummaryPayload());
@@ -857,14 +997,23 @@ wss.on('connection', (ws) => {
       if (!Number.isFinite(speed) || speed < 0.5 || speed > 3) return;
       ttsSpeed = speed;
       broadcast({ type: 'tts-speed-state', speed: ttsSpeed });
+    } else if (message.type === 'set-tts-read-chance') {
+      const chance = Number(message.chance);
+      if (!Number.isFinite(chance) || chance < 0 || chance > 1) return;
+      ttsReadChance = chance;
+      broadcast({ type: 'tts-read-chance-state', chance: ttsReadChance });
     }
   });
 });
 
 if (MOCK_MODE) {
-  console.log('MOCK mode: generating fake chat messages instead of connecting to TikTok.');
+  console.log(`MOCK mode: generating fake follows${process.env.MOCK_CHAT === '1' ? ' and chat traffic' : ''} instead of connecting to TikTok.`);
 
-  const mockUsers = ['nampeung_99', 'kai_gamer', 'pim.streamfan', 'tanawat_th', 'user_888','น้องแมว ม.4/3'];
+  const mockUsers = [
+    'nampeung_99', 'kai_gamer', 'pim.streamfan', 'tanawat_th', 'user_888', 'น้องแมว ม.4/3',
+    // Emoji nicknames: plain, ZWJ sequence, flag, skin tone, variation selector.
+    '🐱น้องแมว🐱', '👨‍👩‍👧 family', '🇹🇭 thai', '👍🏽ok', '❤️ใจ',
+  ];
   const mockComments = [
     'สวัสดีค่า มาดูตั้งแต่ต้นเลย',
     '5555 ตลกมาก',
@@ -893,85 +1042,114 @@ if (MOCK_MODE) {
     { name: 'Glow Stick', image: '' },
   ];
 
+  // Chat-overlay traffic (chat, song requests, stickers, gifts, joins) is
+  // opt-in with MOCK_CHAT=1 so plain MOCK=1 only fires follow alerts.
+  if (process.env.MOCK_CHAT === '1') {
+    setInterval(() => {
+      const nickname = mockUsers[Math.floor(Math.random() * mockUsers.length)];
+      const message = {
+        type: 'chat',
+        user: nickname,
+        nickname,
+        avatarUrl: mockAvatar(nickname),
+        comment: mockComments[Math.floor(Math.random() * mockComments.length)],
+      };
+      console.log(`[MOCK] ${message.nickname}: ${message.comment}`);
+      broadcast(message);
+      handleSongRequestComment(message.user, message.nickname, message.comment);
+    }, 2500);
+
+    // Song requests get their own stream rather than being sprinkled into
+    // mockComments, and are cycled instead of randomised, so a short session
+    // exercises every refusal path (too long, live stream, missing video,
+    // duplicate) instead of depending on luck. All ids are real videos.
+    const mockSongLinks = [
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ', // ok
+      'https://youtu.be/9bZkp7q19f0', // ok -- short link form
+      'https://www.youtube.com/watch?v=kJQP7kiw5Fk', // ok
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ', // refused: already requested
+      'https://www.youtube.com/watch?v=jfKfPfyJRdk', // refused: 1407-day live archive
+      'https://www.youtube.com/watch?v=JGwWNGJdvx8', // ok
+      'https://www.youtube.com/watch?v=4xDzrJKXOOY', // refused: in-progress live stream
+      'https://www.youtube.com/watch?v=fJ9rUzIMcZQ', // ok
+      'https://www.youtube.com/watch?v=zzzzzzzzzzz', // refused: no such video
+      'https://www.youtube.com/watch?v=OPf0YbXqDm0', // ok
+      'https://www.youtube.com/shorts/60ItHLz5WEA', // ok -- shorts form
+      'https://www.youtube.com/watch?v=RgKAFK5djSk', // ok
+      'https://www.youtube.com/watch?v=CevxZvSJLk8', // ok
+      'https://www.youtube.com/watch?v=hT_nvWreIhg', // ok
+    ];
+
+    let mockSongIndex = 0;
+    setInterval(() => {
+      const nickname = mockUsers[mockSongIndex % mockUsers.length];
+      const link = mockSongLinks[mockSongIndex % mockSongLinks.length];
+      mockSongIndex += 1;
+      const message = {
+        type: 'chat',
+        user: nickname,
+        nickname,
+        avatarUrl: mockAvatar(nickname),
+        comment: `/music ${link}`,
+      };
+      console.log(`[MOCK] ${nickname} ขอเพลง ${link}`);
+      broadcast(message);
+      handleSongRequestComment(message.user, message.nickname, message.comment);
+    }, 9000);
+
+    setInterval(() => {
+      const nickname = mockUsers[Math.floor(Math.random() * mockUsers.length)];
+      const message = {
+        type: 'emote',
+        user: nickname,
+        nickname,
+        avatarUrl: mockAvatar(nickname),
+        emoteImages: [mockAvatar('sticker-' + Math.floor(Math.random() * 5))],
+      };
+      console.log(`[MOCK] ${message.nickname} sent a sticker`);
+      broadcast(message);
+    }, 11000);
+
+    setInterval(() => {
+      const gift = mockGifts[Math.floor(Math.random() * mockGifts.length)];
+      const nickname = mockUsers[Math.floor(Math.random() * mockUsers.length)];
+      const message = {
+        type: 'gift',
+        user: nickname,
+        nickname,
+        avatarUrl: mockAvatar(nickname),
+        giftName: gift.name,
+        giftImage: gift.image,
+        repeatCount: Math.floor(Math.random() * 5) + 1,
+      };
+      console.log(`[MOCK] ${message.nickname} sent ${message.giftName} x${message.repeatCount}`);
+      broadcast(message);
+    }, 8000);
+
+    setInterval(() => {
+      const nickname = mockUsers[Math.floor(Math.random() * mockUsers.length)];
+      const message = {
+        type: 'member',
+        user: nickname,
+        nickname,
+        avatarUrl: mockAvatar(nickname),
+      };
+      console.log(`[MOCK] ${message.nickname} joined`);
+      broadcast(message);
+    }, 5000);
+  }
+
   setInterval(() => {
     const nickname = mockUsers[Math.floor(Math.random() * mockUsers.length)];
     const message = {
-      type: 'chat',
-      user: nickname,
-      nickname,
-      avatarUrl: mockAvatar(nickname),
-      comment: mockComments[Math.floor(Math.random() * mockComments.length)],
-    };
-    console.log(`[MOCK] ${message.nickname}: ${message.comment}`);
-    broadcast(message);
-    handleSongRequestComment(message.user, message.nickname, message.comment);
-  }, 2500);
-
-  // Song requests get their own stream rather than being sprinkled into
-  // mockComments, and are cycled instead of randomised, so a short session
-  // exercises every refusal path (too long, live stream, missing video,
-  // duplicate) instead of depending on luck. All ids are real videos.
-  const mockSongLinks = [
-    'https://www.youtube.com/watch?v=dQw4w9WgXcQ', // ok
-    'https://youtu.be/9bZkp7q19f0', // ok -- short link form
-    'https://www.youtube.com/watch?v=kJQP7kiw5Fk', // ok
-    'https://www.youtube.com/watch?v=dQw4w9WgXcQ', // refused: already requested
-    'https://www.youtube.com/watch?v=jfKfPfyJRdk', // refused: 1407-day live archive
-    'https://www.youtube.com/watch?v=JGwWNGJdvx8', // ok
-    'https://www.youtube.com/watch?v=4xDzrJKXOOY', // refused: in-progress live stream
-    'https://www.youtube.com/watch?v=fJ9rUzIMcZQ', // ok
-    'https://www.youtube.com/watch?v=zzzzzzzzzzz', // refused: no such video
-    'https://www.youtube.com/watch?v=OPf0YbXqDm0', // ok
-    'https://www.youtube.com/shorts/60ItHLz5WEA', // ok -- shorts form
-    'https://www.youtube.com/watch?v=RgKAFK5djSk', // ok
-    'https://www.youtube.com/watch?v=CevxZvSJLk8', // ok
-    'https://www.youtube.com/watch?v=hT_nvWreIhg', // ok
-  ];
-
-  let mockSongIndex = 0;
-  setInterval(() => {
-    const nickname = mockUsers[mockSongIndex % mockUsers.length];
-    const link = mockSongLinks[mockSongIndex % mockSongLinks.length];
-    mockSongIndex += 1;
-    const message = {
-      type: 'chat',
-      user: nickname,
-      nickname,
-      avatarUrl: mockAvatar(nickname),
-      comment: `/music ${link}`,
-    };
-    console.log(`[MOCK] ${nickname} ขอเพลง ${link}`);
-    broadcast(message);
-    handleSongRequestComment(message.user, message.nickname, message.comment);
-  }, 9000);
-
-  setInterval(() => {
-    const gift = mockGifts[Math.floor(Math.random() * mockGifts.length)];
-    const nickname = mockUsers[Math.floor(Math.random() * mockUsers.length)];
-    const message = {
-      type: 'gift',
-      user: nickname,
-      nickname,
-      avatarUrl: mockAvatar(nickname),
-      giftName: gift.name,
-      giftImage: gift.image,
-      repeatCount: Math.floor(Math.random() * 5) + 1,
-    };
-    console.log(`[MOCK] ${message.nickname} sent ${message.giftName} x${message.repeatCount}`);
-    broadcast(message);
-  }, 8000);
-
-  setInterval(() => {
-    const nickname = mockUsers[Math.floor(Math.random() * mockUsers.length)];
-    const message = {
-      type: 'member',
+      type: 'follow',
       user: nickname,
       nickname,
       avatarUrl: mockAvatar(nickname),
     };
-    console.log(`[MOCK] ${message.nickname} joined`);
+    console.log(`[MOCK] ${message.nickname} followed`);
     broadcast(message);
-  }, 5000);
+  }, 15000);
 } else {
   const tiktokConnection = new TikTokLiveConnection(TIKTOK_USERNAME, {});
 
@@ -979,12 +1157,14 @@ if (MOCK_MODE) {
     tiktokConnection.connect()
       .then((state) => {
         console.log(`Connected to TikTok live room ${state.roomId} (@${TIKTOK_USERNAME})`);
+        liveLog('tiktok-state', { event: 'connected', roomId: state.roomId, username: TIKTOK_USERNAME });
         tiktokLiveConnected = true;
         tiktokReconnectAttempt = 0;
         broadcast(tiktokConnectionPayload());
       })
       .catch((err) => {
         console.error('Failed to connect to TikTok live:', err.message);
+        liveLog('tiktok-state', { event: 'connect-failed', error: err.message });
         console.error('Retrying in 10s... (make sure the account is live and the username is correct)');
         tiktokLiveConnected = false;
         tiktokReconnectAttempt++;
@@ -1007,12 +1187,18 @@ if (MOCK_MODE) {
         comment: data.content,
         avatarUrl: data.user?.avatarThumb?.urlList?.[0] || '',
       };
+      if (isProfaneComment(message.comment)) {
+        liveLog('filtered', { reason: 'profanity', user: message.user, content: message.comment });
+        console.log(`[filtered] ${message.nickname}: ${message.comment}`);
+        return;
+      }
       console.log(`${message.nickname}: ${message.comment}`);
       broadcast(message);
       // A Song request is a Comment first and stays one -- it is broadcast and
       // spoken like any other, and only *additionally* considered for the queue.
       handleSongRequestComment(message.user, message.nickname, message.comment);
     } catch (err) {
+      liveLog('error', { where: 'chat-handler', user: data?.user?.uniqueId, content: data?.content, error: err.message });
       console.error('[chat] CHAT handler threw for raw event', {
         uniqueId: data?.user?.uniqueId,
         nickname: data?.user?.nickname,
@@ -1055,8 +1241,94 @@ if (MOCK_MODE) {
     broadcast(message);
   });
 
-  tiktokConnection.on(WebcastEvent.DISCONNECTED, () => {
+  tiktokConnection.on(WebcastEvent.FOLLOW, (data) => {
+    const message = {
+      type: 'follow',
+      user: data.user?.uniqueId,
+      nickname: data.user?.nickname,
+      avatarUrl: data.user?.avatarThumb?.urlList?.[0] || '',
+    };
+    if (!message.nickname) return;
+    console.log(`${message.nickname} followed`);
+    broadcast(message);
+  });
+
+  // Without an ERROR listener the connector swallows these silently -- and a
+  // websocket frame that fails to decode takes every comment in it down with it.
+  tiktokConnection.on(ControlEvent.ERROR, ({ info, exception }) => {
+    // Connect failures are already logged by connectToTikTok's retry path.
+    if (info === 'Error while connecting') return;
+    console.error('[tiktok] connector error:', info, exception?.stack || exception);
+    liveLog('error', { where: 'connector', info, error: exception?.message || String(exception) });
+  });
+
+  // A single message that fails protobuf decoding is skipped by the connector
+  // with no event at all, so a viewer whose comments trip it just never shows
+  // up. Log those here so a "their chat never appeared" report has a trace.
+  // Methods the connector has no proto schema for are dropped the same way
+  // (no decodedData, no decodeError). If TikTok moves comments to a new
+  // message type, this is the only place it shows up. Logged once per method.
+  const unknownMethodsSeen = new Set();
+  // High-volume types with nothing a viewer typed; left out of the raw log so
+  // the comments aren't buried under thousands of likes and viewer counts.
+  const NOISY_RAW_METHODS = new Set(['WebcastLikeMessage', 'WebcastRoomUserSeqMessage', 'WebcastMemberMessage']);
+  tiktokConnection.on(ControlEvent.WEBSOCKET_CONNECTED, (wsClient) => {
+    wsClient.on('protoMessageFetchResult', (result) => {
+      for (const m of result.messages || []) {
+        if (m.decodeError) {
+          console.error(`[tiktok] failed to decode ${m.method}:`, m.decodeError.message);
+          liveLog('tiktok-raw', { method: m.method, decodeError: m.decodeError.message });
+        } else if (!m.decodedData) {
+          if (!unknownMethodsSeen.has(m.method)) {
+            unknownMethodsSeen.add(m.method);
+            console.warn(`[tiktok] unknown message type ${m.method} (no schema, dropped by connector)`);
+          }
+          liveLog('tiktok-raw', { method: m.method, unknown: true });
+        } else if (!NOISY_RAW_METHODS.has(m.method)) {
+          const d = m.decodedData.data || {};
+          liveLog('tiktok-raw', {
+            method: m.method,
+            msgId: d.common?.msgId,
+            user: d.user?.uniqueId,
+            nickname: d.user?.nickname,
+            content: d.content,
+          });
+        }
+      }
+    });
+  });
+
+  // Sticker/emote comments (subscriber stickers) arrive as their own event,
+  // not CHAT, and carry only images -- no text. Before this handler they never
+  // reached the overlay at all.
+  tiktokConnection.on(WebcastEvent.EMOTE, (data) => {
+    try {
+      const message = {
+        type: 'emote',
+        user: data.user?.uniqueId,
+        nickname: data.user?.nickname,
+        avatarUrl: data.user?.avatarThumb?.urlList?.[0] || '',
+        emoteImages: (data.emoteList || [])
+          .map((emote) => emote?.image?.urlList?.[0])
+          .filter(Boolean),
+      };
+      console.log(`[emote] ${message.nickname}: ${message.emoteImages.length} sticker(s)`);
+      if (message.emoteImages.length) broadcast(message);
+    } catch (err) {
+      liveLog('error', { where: 'emote-handler', user: data?.user?.uniqueId, error: err.message });
+      console.error('[emote] EMOTE handler threw', {
+        uniqueId: data?.user?.uniqueId,
+        error: err.stack || err.message,
+      });
+    }
+  });
+
+  // DISCONNECTED lives on ControlEvent, not WebcastEvent -- WebcastEvent.DISCONNECTED
+  // is undefined, so this listener never fired and a dropped connection mid-live
+  // was never retried.
+  tiktokConnection.on(ControlEvent.DISCONNECTED, () => {
     console.log('Disconnected from TikTok live. Retrying...');
+    liveLog('tiktok-state', { event: 'disconnected' });
     tiktokLiveConnected = false;
     broadcast(tiktokConnectionPayload('หลุดจากไลฟ์ กำลังเชื่อมต่อใหม่...'));
     setTimeout(connectToTikTok, 5000);

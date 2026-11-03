@@ -6,12 +6,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-song-requests.js"
+    "test": "node test-song-requests.js",
+    "trace": "node trace-live-log.js"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
     "dotenv": "^17.4.2",
-    "tiktok-live-connector": "^2.4.3",
+    "tiktok-live-connector": "^2.5.0",
     "ws": "^8.18.0"
   }
 }

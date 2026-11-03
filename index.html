@@ -405,6 +405,13 @@
             <button type="button" data-value="1.75">1.75x</button>
             <button type="button" data-value="2">2x</button>
           </div>
+          <div class="segmented" id="tts-read-chance" data-value="1">
+            <span class="seg-label">อ่านเมนต์</span>
+            <button type="button" data-value="1" class="active">ทุกเมนต์</button>
+            <button type="button" data-value="0.75">75%</button>
+            <button type="button" data-value="0.5">50%</button>
+            <button type="button" data-value="0.25">25%</button>
+          </div>
         </div>
 
         <div class="panel-box">
@@ -454,6 +461,7 @@
     { path: "/chat", title: "Chat", icon: "💬", a: "#7c5cff", b: "#22c1c3", desc: "แชท + gift + เข้าห้องไลฟ์ + confetti + เสียงอ่าน" },
     { path: "/pinned", title: "Pinned", icon: "📌", a: "#ff8a00", b: "#ffd54a", desc: "การ์ดคอมเมนต์ที่ถูกปักหมุด" },
     { path: "/top-donate", title: "Top Donate", icon: "🏆", a: "#ffd54a", b: "#a259ff", desc: "10 อันดับโดเนทสูงสุด จาก EasyDonate (mock ถ้ายังไม่ตั้ง API key)" },
+    { path: "/follow", title: "Follow Alert", icon: "💜", a: "#b9a8ff", b: "#7c5cff", desc: "การ์ดเด้งแจ้งเตือนผู้ติดตามใหม่ (?theme=, ?seconds=, ?demo=1 ไว้จัดตำแหน่ง)" },
     { path: "/timer", title: "BRB Timer", icon: "⏱️", a: "#ffd166", b: "#ff8a5c", desc: "นับถอยหลังพักเบรก คุมจาก Panel" },
     { path: "/summary", title: "Summary", icon: "📊", a: "#22c1c3", b: "#7c5cff", desc: "การ์ดสรุปยอด คอมเมนต์/ของขวัญ/ผู้ชม กดแสดงจาก Panel" },
     { path: "/music", title: "Music", icon: "🎵", a: "#ff5c8a", b: "#7c5cff", desc: "เล่นเพลงที่คนดูขอผ่านลิงก์ YouTube — อนุมัติทีละเพลงจาก Panel" },
@@ -628,6 +636,21 @@
     ttsSpeedGroup.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === value));
   }
 
+  // ---- TTS read chance: share of Comments read aloud, picked at random ----
+  const ttsReadChanceGroup = document.getElementById("tts-read-chance");
+  ttsReadChanceGroup.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const chance = Number(btn.dataset.value);
+      renderTtsReadChanceState(chance);
+      ws.send({ type: "set-tts-read-chance", chance });
+    });
+  });
+  function renderTtsReadChanceState(chance) {
+    const value = String(chance);
+    ttsReadChanceGroup.dataset.value = value;
+    ttsReadChanceGroup.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === value));
+  }
+
   // ---- session stats summary (on-demand only, no auto-refresh) ----
   function renderStats(data) {
     document.getElementById("stat-comments").textContent = data.comments;
@@ -658,6 +681,7 @@
     if (data.type === "tts-provider-state") renderTtsProviderState(data.provider);
     if (data.type === "tts-enabled-state") renderTtsEnabledState(data.enabled);
     if (data.type === "tts-speed-state") renderTtsSpeedState(data.speed);
+    if (data.type === "tts-read-chance-state") renderTtsReadChanceState(data.chance);
     if (data.type === "summary") renderStats(data);
     if (data.type === "tiktok-connection-state") renderConnection(data.connected, data.detail);
   }, (wsConnected) => {

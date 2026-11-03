@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>Follow Alert</title>
+<link rel="stylesheet" href="/widgets/follow/follow.css" />
+</head>
+<body>
+  <div id="stage">
+    <div id="card">
+      <div class="card-bg">
+        <div id="halo" aria-hidden="true"></div>
+        <div id="shine" aria-hidden="true"></div>
+        <div class="bar-track" aria-hidden="true"><div id="bar"></div></div>
+      </div>
+
+      <div class="row">
+        <div class="avatar-wrap">
+          <div id="wave1" class="wave" aria-hidden="true"></div>
+          <div id="wave2" class="wave wave-2" aria-hidden="true"></div>
+          <div id="confetti" aria-hidden="true"></div>
+          <div id="avatar">
+            <div id="ring"></div>
+            <div class="ring-gap"></div>
+            <div class="avatar-face">
+              <span class="gloss" aria-hidden="true"></span>
+              <span id="initial"></span>
+              <img id="avatar-img" alt="" />
+            </div>
+          </div>
+          <div id="plus">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+          </div>
+        </div>
+
+        <div class="text">
+          <div id="sub">
+            <svg id="spark" aria-hidden="true" width="11" height="11" viewBox="0 0 24 24"><path d="M12 0 Q12 12 24 12 Q12 12 12 24 Q12 12 0 12 Q12 12 12 0 Z"></path></svg>
+            <span>ผู้ติดตามใหม่</span>
+          </div>
+          <span id="name"></span>
+          <span id="thanks">ขอบคุณที่กดติดตามนะ</span>
+        </div>
+
+        <div id="chip">
+          <div id="hearts" aria-hidden="true"></div>
+          <div class="chip-pill">
+            <svg id="beat" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24">
+              <path d="M12 21s-7.5-4.6-9.8-9C.6 8.6 2.6 4.5 6.6 4.5c2.3 0 3.8 1.3 5.4 3.2 1.6-1.9 3.1-3.2 5.4-3.2 4 0 6 4.1 4.4 7.5C19.5 16.4 12 21 12 21z"></path>
+            </svg>
+            <span>Follow</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/widgets/shared/shared.js"></script>
+  <script src="/widgets/follow/follow.js"></script>
+</body>
+</html>

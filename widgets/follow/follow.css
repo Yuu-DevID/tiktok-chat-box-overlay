@@ -1,0 +1,266 @@
+@font-face {
+  font-family: "Kanit";
+  src: url("/fonts/Kanit-Medium.ttf") format("truetype");
+  font-weight: 500;
+}
+@font-face {
+  font-family: "Kanit";
+  src: url("/fonts/Kanit-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+}
+@font-face {
+  font-family: "Kanit";
+  src: url("/fonts/Kanit-Bold.ttf") format("truetype");
+  font-weight: 700;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font-family: "Kanit", "Segoe UI", "Sarabun", sans-serif;
+  overflow: hidden;
+}
+
+/* Theme colors (--bg, --solid, --light, --accent, --rgb, ...) are set on
+   :root by follow.js (?theme=...). Every animated value is written as an
+   inline style per frame by follow.js; this file only holds the static look. */
+#stage {
+  width: 480px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#card {
+  position: relative;
+  width: 420px;
+  height: 104px;
+  border-radius: 20px;
+  opacity: 0;
+  box-shadow: 0 16px 34px rgba(24, 18, 48, 0.34), 0 0 34px rgba(var(--rgb), var(--glow, 0.14));
+}
+
+.card-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--bg);
+  backdrop-filter: blur(14px);
+}
+
+#halo {
+  position: absolute;
+  left: -46px;
+  top: -48px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--rgb), 0.38), rgba(var(--rgb), 0) 68%);
+}
+
+#shine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 40%;
+  pointer-events: none;
+  transform: skewX(-20deg);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0));
+}
+
+.bar-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(var(--rgb), 0.14);
+}
+#bar {
+  height: 3px;
+  width: 100%;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(90deg, var(--accent), var(--light));
+}
+
+.row {
+  position: absolute;
+  inset: 0;
+  padding: 0 22px 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ---- avatar ---- */
+.avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 62px;
+  height: 62px;
+}
+.wave {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  opacity: 0;
+  box-shadow: 0 0 0 2px var(--light);
+}
+.wave-2 { box-shadow: 0 0 0 1.5px var(--accent); }
+
+#confetti span {
+  position: absolute;
+  left: 31px;
+  top: 31px;
+  display: block;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+#avatar {
+  position: absolute;
+  inset: 0;
+}
+#ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+.ring-gap {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--solid);
+}
+.avatar-face {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(140deg, var(--light), var(--accent));
+}
+.gloss {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: 3px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+}
+#initial {
+  position: relative;
+  font-size: 23px;
+  font-weight: 700;
+  color: #FFFFFF;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+/* Real TikTok avatar on top of the initial; hidden until it loads so a
+   broken/missing URL just leaves the design's initial fallback. */
+#avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+#avatar-img.loaded { display: block; }
+
+#plus {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  background: #FFFFFF;
+  box-shadow: 0 0 0 2.5px var(--solid), 0 3px 8px rgba(var(--rgb), 0.55);
+}
+#plus svg { stroke: var(--accent); }
+
+/* ---- text ---- */
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+#sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+#spark path { fill: var(--light); }
+#sub span {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  color: var(--label);
+  text-shadow: var(--ts);
+}
+#name {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+#thanks {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--sub);
+  text-shadow: var(--ts);
+}
+
+/* ---- follow chip ---- */
+#chip {
+  position: relative;
+  flex-shrink: 0;
+}
+#hearts svg {
+  position: absolute;
+  left: 22px;
+  top: 0;
+  overflow: visible;
+  opacity: 0;
+}
+.chip-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px 0 11px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(var(--rgb), 0.32), rgba(var(--rgb), 0.12));
+  box-shadow: inset 0 0 0 1px rgba(var(--rgb), 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+#beat {
+  filter: drop-shadow(0 0 4px rgba(var(--rgb), 0.8));
+}
+#beat path { fill: var(--light); }
+.chip-pill span {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--chip-fg);
+  letter-spacing: 0.02em;
+  text-shadow: var(--ts);
+}

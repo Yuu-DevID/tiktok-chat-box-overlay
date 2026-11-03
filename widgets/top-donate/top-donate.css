@@ -13,11 +13,6 @@
   src: url("/fonts/Kanit-Bold.ttf") format("truetype");
   font-weight: 700;
 }
-@font-face {
-  font-family: "Kanit";
-  src: url("/fonts/Kanit-ExtraBold.ttf") format("truetype");
-  font-weight: 800;
-}
 
 * { box-sizing: border-box; }
 
@@ -29,104 +24,124 @@ html, body {
   overflow: hidden;
 }
 
-/* Flat, plain version: one solid-color card, no glow gradients, no
-   text-shadow/gradient-clip flourishes -- same layout and rank accent
-   colors as before, just quieter. */
+/* Theme colors are set as CSS variables by top-donate.js (?theme=...). */
+#widget {
+  position: relative;
+  width: 400px;
+  margin: 24px;
+}
+
+/* box-shadow and transform are driven per frame from JS. */
 #card {
   position: relative;
-  width: 300px;
-  margin: 24px;
-  border-radius: 14px;
-  padding: 14px 18px;
-  background: rgba(22, 18, 32, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 10px 28px -16px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  padding: 18px 22px;
+  border-radius: 18px;
+  background: var(--bg);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 14px 30px rgba(24, 18, 48, 0.32);
+  transition: box-shadow 0.7s ease;
 }
 
-/* Floats out of #card's normal flow, straddling its top edge and centered
-   independent of the card's own content -- a badge sitting on the card
-   rather than a header pushing the list down. */
-#title-row {
+#shine {
   position: absolute;
-  top: -14px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 45%;
+  pointer-events: none;
+  transform: skewX(-20deg);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
+}
+
+#stage {
+  position: relative;
+  height: 48px;
+}
+
+/* Two slots stacked on top of each other: one leaving, one entering. */
+.slot {
+  position: absolute;
+  inset: 0;
   display: flex;
-  width: fit-content;
+  align-items: center;
+  gap: 14px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.badge {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 5px 16px;
-  border-radius: 999px;
-  background: #7c5cff;
 }
-#title {
-  flex: 0 0 auto;
-  font-weight: 700;
-  font-size: 13px;
-  color: #fff;
-  white-space: nowrap;
-}
+.badge svg { overflow: visible; }
 
-#list {
-  position: relative;
-  height: 24px;
-  overflow: hidden;
-  margin-top: 4px;
-}
-
-#track {
-  display: flex;
-  height: 100%;
-  /* Gap between the outgoing/incoming row while advance() slides between
-     them -- ROW_GAP_PX in top-donate.js has to match this so the slide
-     distance clears the gap too, landing flush on the next row instead of
-     resting half-in-the-gap. */
-  gap: 12px;
-  transition: transform 0.9s cubic-bezier(0.22, 0.8, 0.28, 1);
-}
-
-.row {
-  flex: 0 0 100%;
-  width: 100%;
+.chip {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 4px 2px;
-  font-size: 14px;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 700;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
-.name {
+.info {
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sub {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--sub);
+}
+.name {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-  color: #e6e1f2;
 }
-.rank {
-  color: #8f86ab;
-  font-weight: 600;
-  margin-right: 4px;
-}
-.row.rank-1 .rank { color: #ffd166; }
-.row.rank-2 .rank { color: #d8d4e6; }
-.row.rank-3 .rank { color: #e3a15c; }
 
-.amount {
-  flex: 0 0 auto;
-  font-weight: 600;
-  color: #b8a6ff;
+.amt {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
 }
-.row.rank-1 .amount { color: #ffd166; }
-.row.rank-2 .amount { color: #d8d4e6; }
-.row.rank-3 .amount { color: #e3a15c; }
+.amount {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.baht {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--baht);
+}
 
 #empty {
-  text-align: center;
-  color: #6f6490;
-  font-size: 13px;
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--sub);
+  font-size: 15px;
   font-weight: 500;
-  padding: 10px 0 4px;
 }
+

@@ -5,3 +5,5 @@ server.err.log
 mock_run.log
 filler-songs.json
 extra-donors.json
+logs/
+donor-aliases.json

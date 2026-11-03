@@ -1,14 +1,8 @@
 const MAX_LINES = 20;
 const chatBox = document.getElementById("chat-box");
 
-// On/off for reading chat aloud -- controlled from the Setup & links page
-// (index.html) via WS broadcast (type "tts-enabled-state") instead of a
-// button on this overlay itself, since chat.html runs as an OBS browser
-// source with no convenient way to click anything on it.
 let ttsEnabled = true;
 
-// Anti-spam: if the same person repeats the same comment more than 3
-// times in a row, keep showing the chat bubble but stop reading it aloud.
 const SPAM_REPEAT_LIMIT = 3;
 const lastCommentByUser = new Map();
 
@@ -19,21 +13,6 @@ function isSpamRepeat(userKey, comment) {
   return count > SPAM_REPEAT_LIMIT;
 }
 
-// Collapses a repeated pattern inside a single message before reading it
-// aloud. Two cases, kept to different rep counts:
-// - the repeat spans the whole message ("5555555555" -> "55", "สวัสดี สวัสดี
-//   สวัสดี" -> "สวัสดี สวัสดี"): keep 2 reps, since that's still a deliberate
-//   repeated word/pattern rather than a single word.
-// - the repeat is trailing elongation stuck onto a real word ("เก่งมากกกกกกก"
-//   -> "เก่งมาก", "ฮ่าๆๆๆๆๆๆ" -> "ฮ่าๆ"): collapse to 1 rep, back to the plain
-//   word, since here the repeat isn't the message's own content.
-// Distinguished by match position: a match starting at index 0 has no word
-// in front of it, so it's the whole-message case.
-// Tries pattern lengths 1-24 chars (non-greedy, wide enough to cover a word
-// plus its trailing space) and cuts anything repeating 3+ times. A sentinel
-// space is appended before matching and stripped after: without it, a unit
-// like "สวัสดี " (word + trailing space) never matches its last repetition,
-// since the message ends right after that word with no space following.
 function collapseRepeatsForSpeech(text) {
   const collapsed = (text + " ").replace(
     /(.{1,24}?)\1{2,}/g,
@@ -42,30 +21,41 @@ function collapseRepeatsForSpeech(text) {
   return text.endsWith(" ") ? collapsed : collapsed.replace(/ $/, "");
 }
 
-// Comments matching this are still shown in chat but never read aloud.
-// "หี" + any Thai tone mark (่ ้ ๊ ๋, U+0E48-U+0E4B) or with no tone mark at all, plus "แตด".
-// The lookahead excludes words like "หีบ" where a consonant follows (i.e. "หี" isn't the whole syllable).
-const BLOCKED_TTS_PATTERN = /หี[่-๋]?(?![ก-ฮ])|แตด/;
+const BLOCKED_TTS_PATTERN =
+  /หี[่-๋]?(?![ก-ฮ])|แตด|[คฆขฅ][่-๋]?ว[่-๋]?ย(?!เขิน)|สั[ดส](?!ส่วน)|เย็ด|เงี่ยน|หำ|ชักว่าว|กระจู๋|มึง|กวนตีน|[ฉช]ิบหาย|เด็กเวร|ซัด|โง่|ปัญญาอ่อน|เ[หช]ี[่้]ย(?!ว|น)|อีดอก|ดอกทอง|(?<!แกง)ก(?:ระ|ะ)หรี่(?!ปั)|ร่าน|ไอ้?สัตว์|ส้นตีน|พ่อง(?!อน|ง|าน)|ไปตาย(?!าย)/;
+
+const BLOCKED_GU_PATTERN = /(?<!ส)กู(?![่-๋]|เกิ|รู|ล|ด)/;
+const MENTION_PATTERN = /@\S+/g;
+
+const BLOCKED_LATIN_TTS_PATTERN = /\b(?:hee+|kuy+|kuay+|khuy+|khuay+|kuai|khuai|kvy|kxy|hia+|hiam)\b/i;
+
+const BLOCKED_SPELLED_PATTERN = /(?<![ก-๛])[คฆขฅ][\s.\-_*xX#@!?]+(?:[วw][\s.\-_*xX#@!?]+)?ย(?![ก-๛])/;
 
 function containsBlockedWord(text) {
-  return BLOCKED_TTS_PATTERN.test(text);
+  const normalized = collapseSpacedSingleChars(text);
+  return (
+    BLOCKED_TTS_PATTERN.test(text) ||
+    BLOCKED_TTS_PATTERN.test(normalized) ||
+    BLOCKED_LATIN_TTS_PATTERN.test(normalized) ||
+    BLOCKED_SPELLED_PATTERN.test(text) ||
+    BLOCKED_GU_PATTERN.test(normalized.replace(MENTION_PATTERN, ""))
+  );
 }
 
-// Song requests are shown in chat like any other comment but never read aloud:
-// the body is a YouTube URL, which TTS spells out one character at a time.
-// Kept in step with SONG_COMMAND in server.js -- both decide what counts as a
-// request, so a change to one belongs in the other.
+const MALFORMED_THAI_PATTERN = /[เ-ไ][ัิ-ฺ็-๎]/;
+
+const STACKED_TONE_MARKS_PATTERN = /([่-๋])(?!\1)[่-๋]/;
+
+function isMalformedThai(text) {
+  return MALFORMED_THAI_PATTERN.test(text || "") || STACKED_TONE_MARKS_PATTERN.test(text || "");
+}
+
 const SONG_COMMAND_PATTERN = /^\s*\/music(?:\s|$)/i;
 
 function isSongRequest(text) {
   return SONG_COMMAND_PATTERN.test(text || "");
 }
 
-// Rejoins words that were spaced out one letter at a time to dodge word
-// filters, e.g. "เ ก" or "G      A       Y" -> "เก" / "GAY". Splits on
-// whitespace and glues back together any run of 2+ consecutive single-char
-// tokens; anything that's already a normal (2+ char) word is left alone, so
-// ordinary short sentences like "ไป กิน ข้าว" aren't touched.
 function collapseSpacedSingleChars(text) {
   const tokens = text.split(/\s+/);
   const result = [];
@@ -88,9 +78,6 @@ function collapseSpacedSingleChars(text) {
   return result.join(" ");
 }
 
-// Comments containing "เกย์"/"เก" (as a standalone word, not part of words
-// like "เก่งมาก" or "เกม") or "gay" in any casing are still shown in chat but
-// never read aloud.
 const GAY_WORD_PATTERN = /^(?:เกย์?|เก|gay)$/i;
 
 function containsGayWord(text) {
@@ -98,24 +85,10 @@ function containsGayWord(text) {
   return normalized.split(/\s+/).some((word) => GAY_WORD_PATTERN.test(word));
 }
 
-// Comments containing a "+" are still shown in chat but never read aloud.
-// Ordinary chat doesn't use "+" between numbers, so this only ever fires on
-// junk like "๔๑+ ๔+๒ ๔๑๒๓๑+๒๑+๒๑+๔" -- meaningless digit strings, not a
-// repeated pattern (so isGibberishSpam wouldn't catch it) and not a real word
-// (so it isn't spoken meaningfully either).
 function containsMathSymbolSpam(text) {
   return text.includes("+");
 }
 
-// Comments made of a short chunk repeated many times with inconsistent
-// spacing (spam combos like "ตุก จะจะ ตุก จี๊ ๆ ๆ ตุก จะ จะ ตุก จี๊ ๆ ๆ ...")
-// are still shown in chat but never read aloud. Plain repeats like
-// "5555555555" or "สวัสดี สวัสดี สวัสดี" get shortened by
-// collapseRepeatsForSpeech before this check ever runs, so by the time text
-// reaches here it should already be short -- if a repeated chunk of 12+
-// chars still survives (whitespace stripped, so spacing variants like
-// "จะจะ" vs "จะ จะ" count as the same unit), that repetition couldn't be
-// collapsed cleanly and the message is treated as spam instead of spoken.
 const GIBBERISH_SPAM_PATTERN = /(.{2,24}?)\1{2,}/;
 
 function isGibberishSpam(collapsedText) {
@@ -124,33 +97,11 @@ function isGibberishSpam(collapsedText) {
   return !!match && match[0].length >= 12;
 }
 
-// The default TikTok handle is a word with a long run of digits stuck on the
-// end ("user4512512512"). Reading the digits out loud spells all twelve of
-// them; dropping them makes every such viewer sound like the same person
-// called "user". So the run is kept, shortened to its first few digits --
-// "user4512512512" is read as "user451", which is short enough to say and
-// still tells two viewers apart.
 const HANDLE_DIGITS_SPOKEN = 3;
 
-// Strips the digits and symbols out of a nickname before it's read aloud, so
-// auto-generated TikTok handles like "@daweqwe78874515q5e1878q122zxc" don't
-// get spelled out digit by digit -- only the letters are spoken
-// ("daweqweqqzxc"). Letters split apart by digits are glued back together
-// rather than left as separate one-letter tokens, which TTS would spell out.
-// Ordinary nicknames are mostly letters already, so this leaves them
-// essentially untouched.
-// Returns "" when nothing but digits/symbols was there, in which case the
-// caller reads the comment on its own without a name in front of it.
 function sanitizeNicknameForSpeech(nickname) {
   const raw = (nickname || "").trim();
 
-  // Only the "words then trailing digits" shape keeps any digits. The words
-  // may be separated by spaces, "_", "." or "-" ("user_4512512512",
-  // "Toy Chan 12345"), and the separator in front of the digits is dropped.
-  // A nickname with digits scattered through it
-  // ("daweqwe78874515q5e1878q122zxc") does not match and is still stripped
-  // bare below -- shortening each of its runs would leave more digits to
-  // spell out, not fewer.
   const handle = /^@?([\p{L}\p{M}]+(?:[\s._-]+[\p{L}\p{M}]+)*)[\s._-]*(\d+)$/u.exec(raw);
   if (handle) {
     const name = handle[1].replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
@@ -163,13 +114,6 @@ function sanitizeNicknameForSpeech(nickname) {
     .trim();
 }
 
-// Comments that are just a long run of digits/letters/symbols with no real
-// words ("51d5wa1dw7a9+9+-655dwad15w1a5d1651", "08164-416610-414141-758254--556")
-// are still shown in chat but never read aloud -- TTS would spell them out one
-// character at a time. Detected as: no Thai script at all, at least 8
-// characters once whitespace is stripped, and at least half of them digits.
-// Real Latin chat ("hello", "good job") has no digits and stays readable;
-// anything containing Thai is left to the other filters.
 const GIBBERISH_MIN_LENGTH = 8;
 const GIBBERISH_DIGIT_RATIO = 0.5;
 
@@ -181,8 +125,6 @@ function isAlphanumericGibberish(text) {
   return digits / compact.length >= GIBBERISH_DIGIT_RATIO;
 }
 
-// Small confetti burst near the bottom-right chat box whenever a gift comes in.
-// canvas-confetti is self-hosted via /vendor/confetti.js; skip quietly if it failed to load.
 function celebrateGift() {
   if (typeof confetti !== "function") return;
   confetti({
@@ -201,34 +143,50 @@ function addChatLine(nickname, comment, avatarUrl) {
   pushLine(chatBox, line, MAX_LINES);
 }
 
+function addEmoteLine(nickname, emoteImages, avatarUrl) {
+  const { line, bubble } = buildLine("emote-line", "@" + nickname, avatarUrl, null);
+  line.querySelector(".nickname").textContent += " :";
+  for (const src of emoteImages) {
+    const img = document.createElement("img");
+    img.className = "emote-image";
+    img.src = src;
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";
+    img.onerror = () => {
+      img.remove();
+      if (!bubble.querySelector(".emote-image")) line.remove();
+    };
+    bubble.appendChild(img);
+  }
+  pushLine(chatBox, line, MAX_LINES);
+}
+
 function addGiftLine(nickname, giftName, repeatCount, avatarUrl, giftImage) {
-  // const badge = createBadge("badge-gift", "🎁");
   const { line, bubble } = buildLine("gift-line", "@" + nickname, avatarUrl, null);
   const times = repeatCount > 1 ? ` <span class="gift-count">x${repeatCount}</span>` : "";
   bubble.innerHTML = `<span class="comment">ส่ง ${escapeHtml(giftName)}${times}</span>`;
-
-  // if (giftImage) {
-  //   const icon = document.createElement("img");
-  //   icon.className = "gift-icon";
-  //   icon.src = giftImage;
-  //   icon.alt = "";
-  //   icon.referrerPolicy = "no-referrer";
-  //   icon.onerror = () => icon.remove();
-  //   bubble.appendChild(icon);
-  // }
 
   pushLine(chatBox, line, MAX_LINES);
 }
 
 const setWsStatus = attachStatusIndicator();
 
-connectWS((data) => {
+function reportToLiveLog(report) {
+  ws.send({ type: "overlay-log", page: location.pathname, ...report });
+}
+
+const ws = connectWS((data) => {
   try {
     handleWsMessage(data);
+    if (data.logId) reportToLiveLog({ event: "rendered", logId: data.logId, lines: chatBox.children.length });
   } catch (err) {
     console.error("[chat] handler threw for", JSON.stringify(data), err);
+    reportToLiveLog({ event: "handler-error", logId: data.logId, error: String(err && err.message) });
   }
-}, setWsStatus);
+}, (connected) => {
+  setWsStatus(connected);
+  if (connected) reportToLiveLog({ event: "hello", size: `${innerWidth}x${innerHeight}`, userAgent: navigator.userAgent });
+});
 
 function handleWsMessage(data) {
   if (data.type === "tts-enabled-state") {
@@ -239,6 +197,11 @@ function handleWsMessage(data) {
 
   if (data.type === "tts-speed-state") {
     ttsSpeed = data.speed;
+    return;
+  }
+
+  if (data.type === "tts-read-chance-state") {
+    ttsReadChance = data.chance;
     return;
   }
 
@@ -253,6 +216,11 @@ function handleWsMessage(data) {
 
   if (data.type === "member") return;
 
+  if (data.type === "emote") {
+    addEmoteLine(data.nickname, data.emoteImages || [], data.avatarUrl);
+    return;
+  }
+
   if (data.type !== "chat") return;
   addChatLine(data.nickname, data.comment, data.avatarUrl);
   const userKey = data.user || data.nickname;
@@ -261,36 +229,28 @@ function handleWsMessage(data) {
   if (isSpamRepeat(userKey, data.comment)) skipReasons.push("spam-repeat");
   if (containsBlockedWord(data.comment)) skipReasons.push("blocked-word");
   if (containsGayWord(data.comment)) skipReasons.push("gay-word");
+  if (isMalformedThai(data.comment)) skipReasons.push("malformed-thai");
   if (containsMathSymbolSpam(data.comment)) skipReasons.push("math-symbol-spam");
   if (isGibberishSpam(collapsedComment)) skipReasons.push("gibberish-spam");
   if (isAlphanumericGibberish(data.comment)) skipReasons.push("alphanumeric-gibberish");
   if (isSongRequest(data.comment)) skipReasons.push("song-request");
+  // Rolled last so the log only blames chance for Comments that would
+  // otherwise have been read.
+  if (!skipReasons.length && Math.random() >= ttsReadChance) skipReasons.push("read-chance");
   if (skipReasons.length) {
     console.warn("[tts] skipped", JSON.stringify({ nickname: data.nickname, user: data.user, comment: data.comment, userKey, skipReasons }));
   } else {
-    // The comment alone, no name in front: the nickname is already on screen
-    // in the chat line, and reading it doubled the length of every short message.
     speak(collapsedComment);
   }
 }
 
-// Thai TTS via a self-hosted engine (tts-engine-project, POST /v1/tts),
-// proxied through our own server (see proxyLocalTts in server.js) so the
-// browser can fetch it same-origin with a plain GET. Long text is still
-// split into chunks and queued to play one after another (avoids
-// overlapping audio when multiple chat messages arrive close together);
-// 200 chars is just a reasonable chunk size now, not an upstream limit.
 const TTS_CHUNK_LIMIT = 200;
-const TTS_VOLUME = 0.4; // 0.0 (เงียบ) - 1.0 (เต็ม)
-// 1.0 = ปกติ, >1 = อ่านเร็วขึ้น, <1 = ช้าลง. Default matches the server's
-// initial ttsSpeed; actual value is controlled from the Setup page and
-// synced over WS (see "tts-speed-state" below), same pattern as ttsEnabled.
+const TTS_VOLUME = 0.4;
 let ttsSpeed = 1.5;
+let ttsReadChance = 1;
 const speakQueue = [];
 let isSpeaking = false;
 let currentAudio = null;
-// Cancels the in-flight chunk's stall watchdog (see playChunks) so a late
-// timer fire can't call next() after stopSpeaking already reset the queue.
 let cancelCurrentWatchdog = null;
 
 function speak(text) {
@@ -299,8 +259,6 @@ function speak(text) {
   if (!isSpeaking) processQueue();
 }
 
-// Drops any queued messages and immediately silences whatever's playing
-// right now — used when the user toggles TTS off mid-speech.
 function stopSpeaking() {
   speakQueue.length = 0;
   if (cancelCurrentWatchdog) {
@@ -339,11 +297,6 @@ function splitForTts(text, maxLen) {
   return chunks;
 }
 
-// Upper bound on how long one chunk is allowed to take end-to-end. The
-// server has its own timeout against the upstream TTS engine, but that's a
-// second line of defense -- this one guards against anything on the client
-// side (a stalled fetch, a dropped response) that would otherwise never
-// fire onended/onerror and leave speakQueue stuck silent until reload.
 const TTS_CHUNK_TIMEOUT_MS = 20000;
 
 function playChunks(chunks, i, onDone) {
@@ -351,8 +304,6 @@ function playChunks(chunks, i, onDone) {
     onDone();
     return;
   }
-  // Same-origin proxy in server.js — calling translate.google.com directly
-  // from the browser gets blocked by Chrome's ORB (net::ERR_BLOCKED_BY_ORB).
   const url = "/tts?text=" + encodeURIComponent(chunks[i]);
   const audio = new Audio(url);
   audio.volume = TTS_VOLUME;
