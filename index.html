@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -308,6 +308,21 @@
   .copy-all:hover { background: #e82449; }
   .copy-all.copied { background: #22c1c3; }
 
+  .window-btn {
+    background: #16161a;
+    border: 1px solid #33212a;
+    color: #ff9db1;
+    border-radius: 9px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .window-btn:hover { background: #1d1116; border-color: #4a2230; color: #ffd0da; }
+  .window-btn[disabled] { opacity: 0.5; cursor: default; }
+
   .panel-box-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 </style>
 </head>
@@ -327,10 +342,12 @@
       <span class="status-dot"></span>
       <span class="label" id="status-label">OFFLINE</span>
       <span class="sep"></span>
-      <span class="detail mono" id="status-detail">กำลังตรวจสอบ…</span>
+      <span class="detail mono" id="status-detail">Checking…</span>
     </div>
 
     <div class="spacer"></div>
+
+    <button type="button" class="window-btn" id="open-window" title="Open /chatbox as a standalone desktop window you can pin on top">🖥 Open chat window</button>
   </div>
 
   <div class="layout">
@@ -345,11 +362,11 @@
         <div class="section-title">SESSION</div>
         <div class="stats">
           <div>
-            <div class="stat-label">คอมเมนต์</div>
+            <div class="stat-label">Comments</div>
             <div class="stat-value mono" id="stat-comments">—</div>
           </div>
           <div>
-            <div class="stat-label">ของขวัญ</div>
+            <div class="stat-label">Gifts</div>
             <div class="stat-value mono" id="stat-gifts">—</div>
           </div>
           <div>
@@ -357,14 +374,14 @@
             <div class="stat-value mono accent" id="stat-diamonds">—</div>
           </div>
           <div>
-            <div class="stat-label">ผู้ชมที่ทัก/เข้าร่วม</div>
+            <div class="stat-label">Active viewers</div>
             <div class="stat-value mono" id="stat-viewers">—</div>
           </div>
         </div>
-        <button type="button" class="refresh-stats" id="refresh-stats">แสดงสรุป</button>
+        <button type="button" class="refresh-stats" id="refresh-stats">Show summary</button>
       </div>
 
-      <div class="note">ทุก browser source เป็นพื้นหลังโปร่งใส วางซ้อนใน OBS ได้ทันที</div>
+      <div class="note">Every browser source is a transparent background — drop it straight into OBS.</div>
     </div>
 
     <div class="content">
@@ -375,7 +392,7 @@
         <div class="card-grid" id="overlay-grid"></div>
 
         <div class="section">
-          <div class="section-label">เปิดเองในแท็บ browser ปกติ</div>
+          <div class="section-label">Open in a normal browser tab</div>
           <div class="card-grid" id="tab-grid"></div>
         </div>
       </div>
@@ -384,20 +401,26 @@
       <div class="view" id="view-setup">
 
         <div class="panel-box">
-          <div class="h">การตั้งค่าเสียงอ่าน</div>
-          <div class="sub">เลือกเอนจิน TTS ที่ใช้อ่านแชท — ใช้ร่วมกันทุกหน้าผ่าน WebSocket เดียวกัน</div>
+          <div class="h">Voice settings</div>
+          <div class="sub">Pick the TTS engine and language used to read chat — shared by every page over the same WebSocket.</div>
           <div class="segmented" id="tts-provider" data-value="google">
             <span class="seg-label">TTS</span>
             <button type="button" data-value="local">Local Engine</button>
             <button type="button" data-value="google" class="active">Google</button>
           </div>
+          <div class="segmented" id="tts-lang" data-value="en">
+            <span class="seg-label">Language</span>
+            <button type="button" data-value="en" class="active">English</button>
+            <button type="button" data-value="id">Indonesian</button>
+            <button type="button" data-value="th">Thai</button>
+          </div>
           <div class="segmented" id="tts-enabled" data-value="on">
-            <span class="seg-label">เสียงอ่านแชท</span>
-            <button type="button" data-value="on" class="active">เปิด</button>
-            <button type="button" data-value="off">ปิด</button>
+            <span class="seg-label">Read chat</span>
+            <button type="button" data-value="on" class="active">On</button>
+            <button type="button" data-value="off">Off</button>
           </div>
           <div class="segmented" id="tts-speed" data-value="1.5">
-            <span class="seg-label">ความเร็ว</span>
+            <span class="seg-label">Speed</span>
             <button type="button" data-value="0.75">0.75x</button>
             <button type="button" data-value="1">1x</button>
             <button type="button" data-value="1.25">1.25x</button>
@@ -406,8 +429,8 @@
             <button type="button" data-value="2">2x</button>
           </div>
           <div class="segmented" id="tts-read-chance" data-value="1">
-            <span class="seg-label">อ่านเมนต์</span>
-            <button type="button" data-value="1" class="active">ทุกเมนต์</button>
+            <span class="seg-label">Read</span>
+            <button type="button" data-value="1" class="active">Every comment</button>
             <button type="button" data-value="0.75">75%</button>
             <button type="button" data-value="0.5">50%</button>
             <button type="button" data-value="0.25">25%</button>
@@ -417,34 +440,58 @@
         <div class="panel-box">
           <div class="panel-box-head">
             <div>
-              <div class="h">ลิงก์ Browser source</div>
-              <div class="sub">คัดลอกทีละอันไปวางใน OBS หรือกด Copy all</div>
+              <div class="h">Browser source links</div>
+              <div class="sub">Copy them one by one into OBS, or hit Copy all.</div>
             </div>
             <button type="button" class="copy-all" id="copy-all">Copy all</button>
           </div>
           <div class="url-rows" id="url-rows"></div>
         </div>
 
+        <div class="panel-box">
+          <div class="h">TikTok LIVE (stream key) · tiktok_live.py</div>
+          <div class="sub">Jalankan script Python lokal untuk membuat/mengakhiri room LIVE Studio dan mendapatkan RTMP server + stream key. Path dapat diatur (default: <span class="mono">/home/yusuf/Downloads/tiktok_live.py</span>).</div>
+          <div class="steps" style="margin-top:12px; gap:10px;">
+            <div class="step"><span class="num">1</span><span class="text"><b>Script path</b><br><input id="tiktok-live-script" class="url mono" style="width:100%; margin-top:6px;" placeholder="/home/yusuf/Downloads/tiktok_live.py" /></span></div>
+            <div class="step"><span class="num">2</span><span class="text"><b>Cookies JSON</b><br><input id="tiktok-live-cookies" class="url mono" style="width:100%; margin-top:6px;" placeholder="/path/to/www.tiktok.com.cookies.json" /></span></div>
+            <div class="step"><span class="num">3</span><span class="text"><b>Title / Topic / Region</b><br>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+                <input id="tiktok-live-title" class="url" style="flex:1 1 220px;" placeholder="Live title" />
+                <input id="tiktok-live-topic" class="url mono" style="width:90px;" placeholder="42" />
+                <input id="tiktok-live-region" class="url mono" style="width:90px;" placeholder="auto/id" />
+              </div>
+            </span></div>
+            <div class="step"><span class="num">4</span><span class="text" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <button type="button" class="copy-all" id="tiktok-live-create">Create room &amp; get key</button>
+              <button type="button" class="refresh-stats" id="tiktok-live-end">End room</button>
+              <button type="button" class="refresh-stats" id="tiktok-live-check">Check script</button>
+              <span id="tiktok-live-status" class="sub" style="margin:0;"></span>
+            </span></div>
+          </div>
+          <pre id="tiktok-live-output" class="mono" style="margin-top:12px; white-space:pre-wrap; background:#0c0c0f; border:1px solid #1f1f25; border-radius:10px; padding:12px; font-size:11px; color:#c9c9d1; max-height:260px; overflow:auto;">Output akan muncul di sini…</pre>
+        </div>
+
         <div class="setup-grid">
           <div class="panel-box">
-            <div class="h">วิธีใส่ใน OBS</div>
+            <div class="h">Adding a source in OBS</div>
             <div class="steps">
-              <div class="step"><span class="num">1</span><span class="text">ใน OBS กด <b>+</b> ที่ Sources แล้วเลือก <b>Browser</b></span></div>
-              <div class="step"><span class="num">2</span><span class="text">วาง URL ที่คัดลอกไว้ ใส่ Width/Height ตามที่ระบุใต้ชื่อแต่ละหน้า</span></div>
-              <div class="step"><span class="num">3</span><span class="text">ติ๊ก <b>Shutdown source when not visible</b> และ <b>Refresh browser when scene becomes active</b></span></div>
-              <div class="step"><span class="num">4</span><span class="text">กลับมาแท็บ Overlays เพื่อเปิดลิงก์ทดสอบระหว่างไลฟ์</span></div>
+              <div class="step"><span class="num">1</span><span class="text">In OBS press <b>+</b> under Sources and choose <b>Browser</b>.</span></div>
+              <div class="step"><span class="num">2</span><span class="text">Paste the copied URL and set Width/Height to the size noted under each page.</span></div>
+              <div class="step"><span class="num">3</span><span class="text">Tick <b>Shutdown source when not visible</b> and <b>Refresh browser when scene becomes active</b>.</span></div>
+              <div class="step"><span class="num">4</span><span class="text">Come back to the Overlays tab to preview each one while you're live.</span></div>
             </div>
           </div>
 
           <div class="panel-box">
-            <div class="h">หมายเหตุ</div>
+            <div class="h">Notes</div>
             <div class="steps">
-              <div class="step"><span class="num">i</span><span class="text">Chat / Pinned / Top Donate / Timer / Summary ใช้ปุ่ม "คัดลอกลิงก์" วางใน Browser Source ได้เลย</span></div>
-              <div class="step"><span class="num">i</span><span class="text">Panel เปิดเป็นแท็บ browser ปกติเท่านั้น — ไม่ใช่ widget สำหรับ OBS</span></div>
-              <div class="step"><span class="num">i</span><span class="text">Music เป็นแหล่งเสียงจริง — ใน OBS อย่าติ๊ก <b>Shutdown source when not visible</b> ไม่งั้นเพลงจะหยุดเมื่อสลับ scene</span></div>
-              <div class="step"><span class="num">i</span><span class="text">ขอเพลงต้องตั้ง <b>YOUTUBE_API_KEY</b> ใน .env ก่อน ไม่มี key = feature ปิด</span></div>
-              <div class="step"><span class="num">i</span><span class="text">เปิดโหมดขอเพลงแล้วควรปิดเสียงอ่านแชทเอง — ระบบไม่ได้ผูกให้ ทั้งสองสวิตช์อิสระต่อกัน</span></div>
-              <div class="step"><span class="num">i</span><span class="text">สรุปยอด (Comments/Gifts/Diamonds) กดแสดงเองจากแถบด้านซ้าย ไม่มีการอัปเดตอัตโนมัติ</span></div>
+              <div class="step"><span class="num">i</span><span class="text">Chat / Pinned / Top Donate / Timer / Summary all work as Browser Sources via their copy buttons.</span></div>
+              <div class="step"><span class="num">i</span><span class="text"><b>Chat window</b> is a normal desktop window, not an OBS widget — open it with the button in the header and pin it on top with your desktop environment.</span></div>
+              <div class="step"><span class="num">i</span><span class="text">Music is the real audio source — in OBS do <b>not</b> tick <b>Shutdown source when not visible</b>, or songs stop when you switch scenes.</span></div>
+              <div class="step"><span class="num">i</span><span class="text">Song requests need <b>YOUTUBE_API_KEY</b> in .env. No key = feature off. Viewers request with <b>m!p &lt;song name&gt;</b> or <b>m!p &lt;YouTube link&gt;</b>.</span></div>
+              <div class="step"><span class="num">i</span><span class="text">With <b>Auto</b> on, a valid request starts playing right away; turn it off to approve each one from the Panel.</span></div>
+              <div class="step"><span class="num">i</span><span class="text">Session totals (Comments/Gifts/Diamonds) are shown on demand from the left sidebar — nothing updates automatically.</span></div>
+              <div class="step"><span class="num">i</span><span class="text"><b>Rust overlay binary</b>: jalankan <span class="mono">./tiktok-chat-overlay-linux/run-overlay.sh</span> (atau set <span class="mono">CHATBOX_URL</span>). Butuh WebKitGTK 4.1 (mis. <span class="mono">webkit2gtk-4.1</span> di Arch/CachyOS).</span></div>
             </div>
           </div>
         </div>
@@ -458,23 +505,24 @@
 <script src="/widgets/shared/shared.js"></script>
 <script>
   const OVERLAY_WIDGETS = [
-    { path: "/chat", title: "Chat", icon: "💬", a: "#7c5cff", b: "#22c1c3", desc: "แชท + gift + เข้าห้องไลฟ์ + confetti + เสียงอ่าน" },
-    { path: "/pinned", title: "Pinned", icon: "📌", a: "#ff8a00", b: "#ffd54a", desc: "การ์ดคอมเมนต์ที่ถูกปักหมุด" },
-    { path: "/top-donate", title: "Top Donate", icon: "🏆", a: "#ffd54a", b: "#a259ff", desc: "10 อันดับโดเนทสูงสุด จาก EasyDonate (mock ถ้ายังไม่ตั้ง API key)" },
-    { path: "/follow", title: "Follow Alert", icon: "💜", a: "#b9a8ff", b: "#7c5cff", desc: "การ์ดเด้งแจ้งเตือนผู้ติดตามใหม่ (?theme=, ?seconds=, ?demo=1 ไว้จัดตำแหน่ง)" },
-    { path: "/timer", title: "BRB Timer", icon: "⏱️", a: "#ffd166", b: "#ff8a5c", desc: "นับถอยหลังพักเบรก คุมจาก Panel" },
-    { path: "/summary", title: "Summary", icon: "📊", a: "#22c1c3", b: "#7c5cff", desc: "การ์ดสรุปยอด คอมเมนต์/ของขวัญ/ผู้ชม กดแสดงจาก Panel" },
-    { path: "/music", title: "Music", icon: "🎵", a: "#ff5c8a", b: "#7c5cff", desc: "เล่นเพลงที่คนดูขอผ่านลิงก์ YouTube — อนุมัติทีละเพลงจาก Panel" },
+    { path: "/chat", title: "Chat", icon: "💬", a: "#7c5cff", b: "#22c1c3", desc: "Chat + gifts + joins + confetti + spoken comments" },
+    { path: "/pinned", title: "Pinned", icon: "📌", a: "#ff8a00", b: "#ffd54a", desc: "The comment card you pinned from the chat window or panel" },
+    { path: "/top-donate", title: "Top Donate", icon: "🏆", a: "#ffd54a", b: "#a259ff", desc: "Top 10 donors from EasyDonate (mock data until an API key is set)" },
+    { path: "/follow", title: "Follow Alert", icon: "💜", a: "#b9a8ff", b: "#7c5cff", desc: "New-follower alert card (?theme=, ?seconds=, ?demo=1 for positioning)" },
+    { path: "/timer", title: "BRB Timer", icon: "⏱️", a: "#ffd166", b: "#ff8a5c", desc: "Break countdown, controlled from the chat window or panel" },
+    { path: "/summary", title: "Summary", icon: "📊", a: "#22c1c3", b: "#7c5cff", desc: "Session totals card — comments/gifts/viewers, shown on demand" },
+    { path: "/music", title: "Music", icon: "🎵", a: "#ff5c8a", b: "#7c5cff", desc: "Plays viewer requests from m!p — approve each one, or let Auto do it" },
   ];
 
   const TAB_WIDGETS = [
-    { path: "/panel", title: "Panel", icon: "🎛️", a: "#22c1c3", b: "#7c5cff", desc: "ดูคอมเมนต์สด คลิกเพื่อปักหมุดขึ้นหน้า Pinned, คุม Timer และแสดงสรุป" },
+    { path: "/chatbox", title: "Chat window", icon: "🖥️", a: "#ff2d55", b: "#ff8a5c", desc: "Compact live-chat reader for a desktop window you can pin on top", window: true },
+    { path: "/panel", title: "Panel", icon: "🎛️", a: "#22c1c3", b: "#7c5cff", desc: "Full control: pin comments, song queue, BRB timer and session summary" },
   ];
 
   function copyText(btn, text) {
     navigator.clipboard.writeText(text).then(() => {
       const original = btn.textContent;
-      btn.textContent = "คัดลอกแล้ว ✓";
+      btn.textContent = "Copied ✓";
       btn.classList.add("copied");
       setTimeout(() => {
         btn.textContent = original;
@@ -500,8 +548,8 @@
         </div>
         <div class="desc">${w.desc}</div>
         <div class="row">
-          <button type="button" class="btn" data-open="${w.path}">เปิดดูตัวอย่าง</button>
-          <button type="button" class="btn copy" data-copy="${w.path}">คัดลอกลิงก์</button>
+          <button type="button" class="btn" data-open="${w.path}">Preview</button>
+          <button type="button" class="btn copy" data-copy="${w.path}">Copy URL</button>
         </div>
       `;
       grid.appendChild(card);
@@ -525,7 +573,8 @@
         </div>
         <div class="desc">${w.desc}</div>
         <div class="row">
-          <button type="button" class="btn" data-open="${w.path}">เปิด Panel</button>
+          <button type="button" class="btn" data-open="${w.path}">Open in browser</button>
+          ${w.window ? '<button type="button" class="btn copy" data-window="1">Open as window</button>' : ''}
         </div>
       `;
       grid.appendChild(card);
@@ -559,10 +608,39 @@
       window.open(openBtn.dataset.open, "_blank");
       return;
     }
+    const windowBtn = event.target.closest("[data-window]");
+    if (windowBtn) {
+      openChatWindow(windowBtn);
+      return;
+    }
     const copyBtn = event.target.closest("[data-copy]");
     if (copyBtn) {
       copyText(copyBtn, location.origin + copyBtn.dataset.copy);
     }
+  });
+
+  // Opens the standalone chat window through the server, which runs
+  // bin/chatbox-window.sh (loopback-only, so no LAN device can trigger it).
+  function openChatWindow(btn) {
+    btn.disabled = true;
+    const original = btn.textContent;
+    fetch("/api/open-window", { method: "POST" })
+      .then((res) => {
+        btn.textContent = res.ok ? "Window opened ✓" : "Could not open";
+      })
+      .catch(() => {
+        btn.textContent = "Could not open";
+      })
+      .finally(() => {
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.disabled = false;
+        }, 1800);
+      });
+  }
+
+  document.getElementById("open-window").addEventListener("click", (event) => {
+    openChatWindow(event.currentTarget);
   });
 
   document.getElementById("copy-all").addEventListener("click", () => {
@@ -603,6 +681,19 @@
   function renderTtsProviderState(provider) {
     ttsProviderGroup.dataset.value = provider;
     ttsProviderGroup.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === provider));
+  }
+
+  // ---- TTS spoken language (English is the default) ----
+  const ttsLangGroup = document.getElementById("tts-lang");
+  ttsLangGroup.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      renderTtsLangState(btn.dataset.value);
+      ws.send({ type: "set-tts-lang", lang: btn.dataset.value });
+    });
+  });
+  function renderTtsLangState(lang) {
+    ttsLangGroup.dataset.value = lang;
+    ttsLangGroup.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === lang));
   }
 
   // ---- TTS on/off switch (was a button on chat.html itself; moved here so
@@ -674,18 +765,96 @@
     statusPill.classList.toggle("connected", connected);
     statusPill.classList.toggle("offline", !connected);
     statusLabel.textContent = connected ? "LIVE" : "OFFLINE";
-    statusDetail.textContent = detail || (connected ? "เชื่อมต่อ TikTok แล้ว" : "ยังไม่ได้เชื่อมต่อ TikTok");
+    statusDetail.textContent = detail || (connected ? "Connected to TikTok" : "Not connected to TikTok yet");
+  }
+
+  // ---- TikTok LIVE (tiktok_live.py) controls ----
+  const tlScript = document.getElementById("tiktok-live-script");
+  const tlCookies = document.getElementById("tiktok-live-cookies");
+  const tlTitle = document.getElementById("tiktok-live-title");
+  const tlTopic = document.getElementById("tiktok-live-topic");
+  const tlRegion = document.getElementById("tiktok-live-region");
+  const tlOutput = document.getElementById("tiktok-live-output");
+  const tlStatus = document.getElementById("tiktok-live-status");
+  if (tlScript) {
+    tlScript.value = localStorage.getItem("tiktokLive.scriptPath") || "/home/yusuf/Downloads/tiktok_live.py";
+    tlCookies.value = localStorage.getItem("tiktokLive.cookiesPath") || "/home/yusuf/Downloads/www.tiktok.com.cookies.json";
+    tlTitle.value = localStorage.getItem("tiktokLive.title") || "Live Stream";
+    tlTopic.value = localStorage.getItem("tiktokLive.topic") || "42";
+    tlRegion.value = localStorage.getItem("tiktokLive.region") || "auto";
+    const saveTl = () => {
+      localStorage.setItem("tiktokLive.scriptPath", tlScript.value.trim());
+      localStorage.setItem("tiktokLive.cookiesPath", tlCookies.value.trim());
+      localStorage.setItem("tiktokLive.title", tlTitle.value);
+      localStorage.setItem("tiktokLive.topic", tlTopic.value);
+      localStorage.setItem("tiktokLive.region", tlRegion.value);
+    };
+    [tlScript, tlCookies, tlTitle, tlTopic, tlRegion].forEach((el) => el.addEventListener("change", saveTl));
+    const tlBody = () => ({
+      scriptPath: tlScript.value.trim(),
+      cookiesPath: tlCookies.value.trim(),
+      title: tlTitle.value,
+      topic: tlTopic.value.trim() || "42",
+      region: tlRegion.value.trim() || "auto",
+    });
+    document.getElementById("tiktok-live-check").addEventListener("click", async () => {
+      saveTl();
+      tlStatus.textContent = "Checking…";
+      try {
+        const res = await fetch(`/api/tiktok-live/status?script=${encodeURIComponent(tlScript.value.trim())}`);
+        const data = await res.json();
+        tlStatus.textContent = data.available ? "Script found ✓" : "Script not found";
+        tlOutput.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        tlStatus.textContent = "Error";
+        tlOutput.textContent = String(e);
+      }
+    });
+    document.getElementById("tiktok-live-create").addEventListener("click", async () => {
+      saveTl();
+      tlStatus.textContent = "Creating…";
+      tlOutput.textContent = "Running tiktok_live.py create…";
+      try {
+        const res = await fetch("/api/tiktok-live/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(tlBody()) });
+        const data = await res.json();
+        tlStatus.textContent = data.ok ? "Done ✓" : "Failed";
+        tlOutput.textContent = (data.stdout || "") + (data.stderr ? "\n[stderr]\n" + data.stderr : "");
+        if (!data.stdout && !data.stderr) tlOutput.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        tlStatus.textContent = "Error";
+        tlOutput.textContent = String(e);
+      }
+    });
+    document.getElementById("tiktok-live-end").addEventListener("click", async () => {
+      saveTl();
+      tlStatus.textContent = "Ending…";
+      try {
+        const res = await fetch("/api/tiktok-live/end", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(tlBody()) });
+        const data = await res.json();
+        tlStatus.textContent = data.ok ? "Ended ✓" : "Failed";
+        tlOutput.textContent = (data.stdout || "") + (data.stderr ? "\n[stderr]\n" + data.stderr : "");
+        if (!data.stdout && !data.stderr) tlOutput.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        tlStatus.textContent = "Error";
+        tlOutput.textContent = String(e);
+      }
+    });
   }
 
   const ws = connectWS((data) => {
     if (data.type === "tts-provider-state") renderTtsProviderState(data.provider);
+    if (data.type === "tts-lang-state") renderTtsLangState(data.lang);
     if (data.type === "tts-enabled-state") renderTtsEnabledState(data.enabled);
     if (data.type === "tts-speed-state") renderTtsSpeedState(data.speed);
     if (data.type === "tts-read-chance-state") renderTtsReadChanceState(data.chance);
     if (data.type === "summary") renderStats(data);
     if (data.type === "tiktok-connection-state") renderConnection(data.connected, data.detail);
+    if (data.type === "tiktok-live-result" && tlOutput) {
+      tlOutput.textContent = (data.stdout || "") + (data.stderr ? "\n[stderr]\n" + data.stderr : "") || JSON.stringify(data, null, 2);
+      if (tlStatus) tlStatus.textContent = data.ok ? "Done ✓" : "Failed";
+    }
   }, (wsConnected) => {
-    if (!wsConnected) renderConnection(false, "ขาดการเชื่อมต่อ server…");
+    if (!wsConnected) renderConnection(false, "Lost connection to the server…");
   });
 </script>
 </body>

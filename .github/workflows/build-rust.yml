@@ -8,21 +8,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
       - name: Install system deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            pkg-config \
-            build-essential
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+          pacman -Syu --noconfirm --needed \
+            base-devel git nodejs npm rust cargo \
+            gtk3 webkit2gtk-4.1 librsvg pkgconf
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:

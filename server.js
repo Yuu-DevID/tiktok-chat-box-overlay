@@ -5,6 +5,7 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const { URL } = require('url');
 
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME || 'your_tiktok_username';
@@ -21,6 +22,12 @@ const TTS_ENGINE_URL = process.env.TTS_ENGINE_URL || 'http://127.0.0.1:8000/v1/t
 // In-memory only, resets to 'google' on server restart -- same convention as
 // timerState below. Switched via the panel's TTS provider control.
 let ttsProvider = 'google'; // 'local' | 'google'
+
+// Language spoken by TTS and sent to whichever provider is active, e.g. 'en'
+// (default -- the overlay UI is English), 'id' or 'th'. Same in-memory,
+// panel-controlled, WS-synced convention as ttsProvider above.
+let ttsLang = 'en';
+const TTS_LANGS = new Set(['en', 'id', 'th']);
 
 // Global on/off for reading chat aloud, in-memory only (resets to true on
 // restart). Was a per-browser localStorage toggle button on chat.html itself;
@@ -55,7 +62,7 @@ function tiktokConnectionPayload(detailOverride) {
     payload.detail =
       detailOverride ||
       (tiktokReconnectAttempt > 0
-        ? `กำลังลองเชื่อมต่อใหม่ครั้งที่ ${tiktokReconnectAttempt} (ตรวจสอบว่า live อยู่และ username ถูกต้อง)`
+        ? `Reconnecting, attempt ${tiktokReconnectAttempt} (check that the account is live and the username is correct)`
         : undefined);
   }
   return payload;
@@ -65,9 +72,9 @@ function tiktokConnectionPayload(detailOverride) {
 // same-origin (Chrome's ORB blocks the browser hitting translate.google.com
 // directly). No API key needed. Kept as a fallback alongside the local
 // engine; pick between them via ttsProvider.
-function proxyGoogleTts(text, res) {
+function proxyGoogleTts(text, lang, res) {
   const ttsUrl =
-    'https://translate.google.com/translate_tts?ie=UTF-8&tl=th&client=tw-ob&q=' +
+    `https://translate.google.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(lang)}&client=tw-ob&q=` +
     encodeURIComponent(text.slice(0, 200));
 
   const req = https
@@ -157,16 +164,16 @@ function proxyLocalTts(text, lang, res) {
 const EASYDONATE_API_BASE_URL = process.env.EASYDONATE_API_BASE_URL || 'https://api.easydonate.app';
 
 const MOCK_LEADERBOARD = [
-  { name: 'น้องโปรยปลา', amount: 5428.15 },
-  { name: 'sleeping', amount: 2040 },
-  { name: 'kai_gamer', amount: 1580.5 },
-  { name: 'pim.streamfan', amount: 990 },
-  { name: 'tanawat_th', amount: 720 },
-  { name: 'user_888', amount: 500 },
-  { name: 'nampeung_99', amount: 350 },
-  { name: 'boss_888', amount: 220 },
-  { name: 'malee_cat', amount: 150 },
-  { name: 'lek_fc', amount: 100 },
+  { name: 'sleeping', amount: 5428.15 },
+  { name: 'kai_gamer', amount: 2040 },
+  { name: 'pim.streamfan', amount: 1580.5 },
+  { name: 'tanawat_th', amount: 990 },
+  { name: 'user_888', amount: 720 },
+  { name: 'nampeung_99', amount: 500 },
+  { name: 'boss_888', amount: 350 },
+  { name: 'malee_cat', amount: 220 },
+  { name: 'lek_fc', amount: 150 },
+  { name: 'skyfall', amount: 100 },
 ];
 
 // Real donors who aren't tracked by the EasyDonate API but should still show
@@ -338,14 +345,170 @@ const YOUTUBE_LINK_PATTERNS = [
 // A request has to be opted into with the command word. Without it every
 // link anyone happens to paste in chat -- a clip they are talking about, a
 // reply to someone else -- lands in the streamer's approval queue as noise.
-const SONG_COMMAND = /^\s*\/music(?:\s|$)/i;
+// `m!p` is the short form viewers are told to use; `/music` stays accepted so
+// older chat messages and existing docs keep working.
+const SONG_COMMAND = /^\s*(?:m!p|\/music)(?:\s+|$)/i;
+const SONG_QUERY_MAX_LENGTH = 120;
+
+// What someone asked for: a YouTube link, or just a song name to search for.
+// Returns null when the Comment doesn't start with the command at all.
+function parseSongCommand(text) {
+  const match = SONG_COMMAND.exec(text || '');
+  if (!match) return null;
+  return text.slice(match[0].length).trim();
+}
 
 function extractVideoId(text) {
   for (const pattern of YOUTUBE_LINK_PATTERNS) {
-    const match = pattern.exec(text);
+    const match = pattern.exec(String(text || ''));
     if (match) return match[1];
   }
   return null;
+}
+
+// A browser-ish UA plus the consent cookies: without them YouTube answers a
+// datacenter/EEA request with the consent interstitial instead of results.
+const YOUTUBE_SEARCH_UA =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+function httpsGetText(url, redirectsLeft = 3) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      {
+        headers: {
+          'User-Agent': YOUTUBE_SEARCH_UA,
+          'Accept-Language': 'en-US,en;q=0.9',
+          Cookie: 'CONSENT=YES+cb.20210328-17-p0.en+FX+000; SOCS=CAI',
+        },
+      },
+      (apiRes) => {
+        const status = apiRes.statusCode;
+        if (status >= 300 && status < 400 && apiRes.headers.location && redirectsLeft > 0) {
+          apiRes.resume();
+          const next = new URL(apiRes.headers.location, url).toString();
+          httpsGetText(next, redirectsLeft - 1).then(resolve, reject);
+          return;
+        }
+        let body = '';
+        apiRes.on('data', (chunk) => (body += chunk));
+        apiRes.on('end', () => {
+          if (status !== 200) {
+            reject(new Error(`HTTP ${status}`));
+            return;
+          }
+          resolve(body);
+        });
+      }
+    );
+    req.setTimeout(8000, () => req.destroy(new Error('YouTube search timed out')));
+    req.on('error', reject);
+  });
+}
+
+function isLiveResult(videoRenderer) {
+  const badges = Array.isArray(videoRenderer.badges) ? videoRenderer.badges : [];
+  return badges.some((badge) => /LIVE/i.test((badge && badge.metadataBadgeRenderer && badge.metadataBadgeRenderer.label) || ''));
+}
+
+function hasDurationLabel(videoRenderer) {
+  const length = videoRenderer.lengthText;
+  return Boolean(length && (length.simpleText || (length.runs && length.runs.length)));
+}
+
+// Depth-first walk of ytInitialData collecting playable video entries. Two
+// shapes are in the wild: the classic videoRenderer and the newer
+// lockupViewModel used by some result layouts. Live streams are skipped when
+// any recorded result exists (a live stream can never be played from the
+// queue), and several ids are kept so a top hit that blocks embedding or is
+// too long can still fall through to the next playable result.
+function collectVideoIds(node, out = [], options = {}, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 40 || out.length >= 8) return out;
+  const videoRenderer = node.videoRenderer;
+  if (videoRenderer && /^[\w-]{11}$/.test(videoRenderer.videoId || '')) {
+    const playable = options.allowLive || (!isLiveResult(videoRenderer) && hasDurationLabel(videoRenderer));
+    if (playable && !out.includes(videoRenderer.videoId)) out.push(videoRenderer.videoId);
+  }
+  const lockup = node.lockupViewModel;
+  if (
+    lockup &&
+    lockup.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO' &&
+    /^[\w-]{11}$/.test(lockup.contentId || '') &&
+    !out.includes(lockup.contentId)
+  ) {
+    out.push(lockup.contentId);
+  }
+  for (const key of Object.keys(node)) {
+    collectVideoIds(node[key], out, options, depth + 1);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+function extractVideoIdsFromHtml(html) {
+  const marker = /(?:var\s+)?ytInitialData\s*=\s*/.exec(html || '');
+  if (!marker) return [];
+  // The JSON blob runs until the script tag that carries it; trimming back to
+  // the matching brace is safer than trusting the first `;</script>` because
+  // YouTube has shipped both endings over time.
+  const start = marker.index + marker[0].length;
+  const end = html.indexOf('</script>', start);
+  if (end === -1) return [];
+  let blob = html.slice(start, end).trim();
+  if (blob.endsWith(';')) blob = blob.slice(0, -1);
+  let data;
+  try {
+    data = JSON.parse(blob);
+  } catch {
+    return [];
+  }
+  const recorded = collectVideoIds(data);
+  // A query can genuinely be all live results; in that case keep them so the
+  // refusal reason says "live stream" instead of "no result".
+  return recorded.length ? recorded : collectVideoIds(data, [], { allowLive: true });
+}
+
+// Resolves a song name to candidate video ids without spending Data API quota:
+// search.list costs 100 units against a 10,000/day budget (100 searches and
+// the feature is silent for the rest of the day), while scraping the public
+// results page costs nothing. The API's search.list is only a fallback for
+// when YouTube changes its markup, and is logged when it happens.
+async function searchYouTubeSong(query) {
+  const url =
+    'https://www.youtube.com/results?search_query=' +
+    encodeURIComponent(query) +
+    '&hl=en&gl=US&sp=EgIQAQ%253D%253D'; // sp = filter: videos only
+
+  try {
+    const html = await httpsGetText(url);
+    const videoIds = extractVideoIdsFromHtml(html);
+    if (videoIds.length) {
+      console.log(`[song] search "${query}" -> ${videoIds.length} candidate(s), first ${videoIds[0]}`);
+      return { ok: true, videoIds };
+    }
+    console.warn('[song] search page had no parseable result, falling back to Data API');
+  } catch (err) {
+    console.warn(`[song] search page failed (${err.message}), falling back to Data API`);
+  }
+
+  if (!YOUTUBE_API_KEY) return { ok: false, reason: 'No search result for that name' };
+  try {
+    const payload = await fetchJson(
+      'https://www.googleapis.com/youtube/v3/search' +
+        `?part=snippet&type=video&maxResults=5&q=${encodeURIComponent(query)}` +
+        `&key=${encodeURIComponent(YOUTUBE_API_KEY)}`
+    );
+    const videoIds = (payload.items || [])
+      .map((item) => item && item.id && item.id.videoId)
+      .filter(Boolean);
+    if (videoIds.length) {
+      console.log(`[song] search "${query}" -> ${videoIds.length} candidate(s) (Data API)`);
+      return { ok: true, videoIds };
+    }
+  } catch (err) {
+    console.error(`[song] Data API search failed: ${err.message}`);
+  }
+  return { ok: false, reason: 'No search result for that name' };
 }
 
 // ISO 8601 durations, which is the only format the API reports ("PT4M13S").
@@ -363,20 +526,15 @@ function parseIsoDuration(iso) {
 // region -- all fail *silently* on stream if unchecked: the player just shows a
 // black rectangle mid-live with nothing explaining why. Checking here means a
 // bad link is refused at request time instead of surfacing 40 minutes later.
-function fetchVideoDetails(videoId) {
+function fetchJson(url) {
   return new Promise((resolve, reject) => {
-    const url =
-      'https://www.googleapis.com/youtube/v3/videos' +
-      `?part=snippet,contentDetails,status&id=${encodeURIComponent(videoId)}` +
-      `&key=${encodeURIComponent(YOUTUBE_API_KEY)}`;
-
     https
       .get(url, (apiRes) => {
         let body = '';
         apiRes.on('data', (chunk) => (body += chunk));
         apiRes.on('end', () => {
           if (apiRes.statusCode !== 200) {
-            reject(new Error(`YouTube API ${apiRes.statusCode}: ${body.slice(0, 200)}`));
+            reject(new Error(`HTTP ${apiRes.statusCode}: ${body.slice(0, 200)}`));
             return;
           }
           try {
@@ -390,31 +548,41 @@ function fetchVideoDetails(videoId) {
   });
 }
 
+function fetchVideoDetails(videoId) {
+  const url =
+    'https://www.googleapis.com/youtube/v3/videos' +
+    `?part=snippet,contentDetails,status&id=${encodeURIComponent(videoId)}` +
+    `&key=${encodeURIComponent(YOUTUBE_API_KEY)}`;
+  return fetchJson(url).catch((err) => {
+    throw new Error(`YouTube API ${err.message}`);
+  });
+}
+
 // Returns { ok: true, song } or { ok: false, reason }. The reason is for the
 // server log and the panel only -- a refusal is never sent back to the asker,
 // since the room chat is read-only to us (see CONTEXT.md).
 async function validateVideo(videoId) {
   const payload = await fetchVideoDetails(videoId);
   const item = payload.items && payload.items[0];
-  if (!item) return { ok: false, reason: 'ไม่พบวิดีโอ (ถูกลบหรือเป็นส่วนตัว)' };
+  if (!item) return { ok: false, reason: 'Video not found (deleted or private)' };
 
   if (item.status && item.status.embeddable === false) {
-    return { ok: false, reason: 'เจ้าของปิดการฝัง (embed) ไว้' };
+    return { ok: false, reason: 'The owner disabled embedding' };
   }
 
   const durationSec = parseIsoDuration(item.contentDetails && item.contentDetails.duration);
-  if (durationSec === null) return { ok: false, reason: 'อ่านความยาวไม่ได้' };
-  if (durationSec === 0) return { ok: false, reason: 'เป็นไลฟ์สด ไม่ใช่คลิป' };
+  if (durationSec === null) return { ok: false, reason: 'Could not read the video length' };
+  if (durationSec === 0) return { ok: false, reason: 'That is a live stream, not a video' };
   if (durationSec > SONG_MAX_DURATION_SEC) {
-    return { ok: false, reason: `ยาวเกิน ${Math.round(SONG_MAX_DURATION_SEC / 60)} นาที` };
+    return { ok: false, reason: `Longer than ${Math.round(SONG_MAX_DURATION_SEC / 60)} minutes` };
   }
 
   const restriction = item.contentDetails && item.contentDetails.regionRestriction;
   if (restriction && restriction.blocked && restriction.blocked.includes(YOUTUBE_REGION)) {
-    return { ok: false, reason: `เล่นไม่ได้ในภูมิภาค ${YOUTUBE_REGION}` };
+    return { ok: false, reason: `Blocked in region ${YOUTUBE_REGION}` };
   }
   if (restriction && restriction.allowed && !restriction.allowed.includes(YOUTUBE_REGION)) {
-    return { ok: false, reason: `เล่นไม่ได้ในภูมิภาค ${YOUTUBE_REGION}` };
+    return { ok: false, reason: `Blocked in region ${YOUTUBE_REGION}` };
   }
 
   return {
@@ -452,11 +620,18 @@ function saveFillerSongs() {
 // moment that no longer exists, so a restart drops the queue rather than
 // resuming it. Only fillerSongs above survives.
 const songState = {
-  enabled: false,
+  // On by default when an API key is configured: `m!p` should just work after
+  // setup, and the chat window's Requests switch is still there to turn it off.
+  enabled: Boolean(YOUTUBE_API_KEY),
   pending: [], // awaiting the streamer's approval
   approved: [], // approved, waiting their turn
   nowPlaying: null,
   recentVideoIds: [],
+  // When on, a request that passes validation is approved and started by the
+  // same message -- which is what makes `m!p <song>` feel like a jukebox
+  // instead of a moderation queue. Off restores one-by-one approval; requests
+  // always pass through the same validation either way.
+  autoApprove: true,
 };
 
 let songSeq = 0;
@@ -469,13 +644,22 @@ function songStatePayload() {
   return {
     type: 'song-state',
     enabled: songState.enabled,
+    autoApprove: songState.autoApprove,
     hasApiKey: Boolean(YOUTUBE_API_KEY),
     pending: songState.pending,
     approved: songState.approved,
     nowPlaying: songState.nowPlaying,
     fillers: fillerSongs,
     maxDurationSec: SONG_MAX_DURATION_SEC,
+    command: 'm!p',
   };
+}
+
+// Streamer-facing only: tells the panel/chatbox what just happened to a
+// request, since the room chat is read-only to us and the asker can't be
+// answered in TikTok. Never shown on any OBS overlay.
+function notifySongRequest(notice) {
+  broadcast({ type: 'song-request-notice', at: Date.now(), ...notice });
 }
 
 function isVideoTaken(videoId) {
@@ -511,64 +695,123 @@ function advanceSong() {
 }
 
 // Called from the CHAT handler for every Comment. Everything here is silent to
-// the asker by design -- the per-viewer cap is a server-side filter that keeps
-// the panel queue usable, not a rule viewers are told about.
+// the asker by design -- the panel notice is for the streamer, and the room
+// chat is read-only to us.
 async function handleSongRequestComment(user, nickname, comment) {
   if (!songState.enabled || !YOUTUBE_API_KEY) return;
 
-  const text = comment || '';
-  if (!SONG_COMMAND.test(text)) return;
-
-  const videoId = extractVideoId(text);
-  if (!videoId) return;
-
-  if (songState.pending.some((s) => s.user === user)) {
-    console.log(`[song] dropped ${nickname}: already has one pending`);
+  const query = parseSongCommand(comment);
+  if (!query) {
+    notifySongRequest({ ok: false, nickname, query, reason: 'Add a song name or link after m!p' });
     return;
   }
-  if (isVideoTaken(videoId)) {
-    console.log(`[song] dropped ${nickname}: ${videoId} already queued or just played`);
+
+  if (query.length > SONG_QUERY_MAX_LENGTH) {
+    notifySongRequest({ ok: false, nickname, query, reason: 'That name is too long' });
+    return;
+  }
+  if (hasViewerRequest(user)) {
+    console.log(`[song] dropped ${nickname}: already has one request waiting`);
+    notifySongRequest({ ok: false, nickname, query, reason: 'You already have a request waiting' });
     return;
   }
 
   try {
-    const result = await validateVideo(videoId);
-    if (!result.ok) {
-      console.log(`[song] refused ${nickname} (${videoId}): ${result.reason}`);
+    const resolved = await resolveRequestSong(query);
+    if (!resolved.ok) {
+      console.log(`[song] refused ${nickname} ("${query}"): ${resolved.reason}`);
+      notifySongRequest({ ok: false, nickname, query, reason: resolved.reason });
       return;
     }
-    // Re-checked after the await: the lookup took a network round-trip, and
-    // another Comment from the same viewer (or for the same video) may have
-    // landed in the meantime.
-    if (songState.pending.some((s) => s.user === user) || isVideoTaken(videoId)) return;
 
-    songState.pending.push({
-      ...result.song,
+    // Re-checked after the search/lookup awaits: another Comment from the same
+    // viewer may have landed in the meantime.
+    if (hasViewerRequest(user)) return;
+
+    const song = {
+      ...resolved.song,
       id: nextSongId(),
       user,
       nickname,
       isFiller: false,
       requestedAt: Date.now(),
-    });
-    console.log(`[song] queued "${result.song.title}" from ${nickname}`);
-    broadcast(songStatePayload());
+    };
+
+    if (songState.autoApprove) {
+      songState.approved.push(song);
+      console.log(`[song] auto-approved "${song.title}" from ${nickname}`);
+      if (!songState.nowPlaying) {
+        advanceSong();
+      } else {
+        broadcast(songStatePayload());
+      }
+      notifySongRequest({ ok: true, nickname, query, title: song.title, auto: true });
+    } else {
+      songState.pending.push(song);
+      console.log(`[song] queued "${song.title}" from ${nickname}`);
+      broadcast(songStatePayload());
+      notifySongRequest({ ok: true, nickname, query, title: song.title, auto: false });
+    }
   } catch (err) {
-    console.error(`[song] lookup failed for ${videoId}:`, err.message);
+    console.error(`[song] request from ${nickname} failed:`, err.message);
+    notifySongRequest({ ok: false, nickname, query, reason: 'Could not look that up' });
   }
+}
+
+function hasViewerRequest(user) {
+  return [...songState.pending, ...songState.approved].some((s) => s.user === user);
+}
+
+// Turns a command's argument into a validated, playable song. A link is used as
+// given; a name goes through search and then each candidate in order, so a top
+// hit that is a live stream or blocks embedding doesn't refuse the whole
+// request. Returns { ok: true, song } or { ok: false, reason }.
+async function resolveRequestSong(query) {
+  const directId = extractVideoId(query);
+  let candidates;
+  if (directId) {
+    candidates = [directId];
+  } else {
+    const search = await searchYouTubeSong(query);
+    if (!search.ok) return search;
+    candidates = search.videoIds;
+  }
+
+  let lastReason = 'No playable result for that name';
+  for (const videoId of candidates) {
+    if (isVideoTaken(videoId)) {
+      lastReason = 'That video is already queued or just played';
+      continue;
+    }
+    const result = await validateVideo(videoId);
+    if (!result.ok) {
+      console.log(`[song] skipped ${videoId}: ${result.reason}`);
+      lastReason = result.reason;
+      continue;
+    }
+    return { ok: true, song: result.song };
+  }
+  return { ok: false, reason: lastReason };
 }
 
 // The streamer's own requests take the same path through validateVideo as a
 // viewer's -- same checks, same refusals -- and differ only in where they land.
-async function addFillerSong(link) {
-  const videoId = extractVideoId(link || '');
-  if (!videoId) return { ok: false, reason: 'ไม่พบลิงก์ YouTube ในข้อความ' };
-  if (fillerSongs.some((f) => f.videoId === videoId)) {
-    return { ok: false, reason: 'เพลงนี้อยู่ใน Filler แล้ว' };
-  }
-  const result = await validateVideo(videoId);
-  if (!result.ok) return result;
+// A link or a song name is accepted here too, so Filler entries can be added in
+// whichever form is at hand.
+async function addFillerSong(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return { ok: false, reason: 'Enter a YouTube link or a song name' };
+  if (raw.length > SONG_QUERY_MAX_LENGTH) return { ok: false, reason: 'That name is too long' };
 
-  fillerSongs.push({ ...result.song, id: nextSongId() });
+  const resolved = await resolveRequestSong(raw);
+  if (!resolved.ok) return resolved;
+
+  const song = resolved.song;
+  if (fillerSongs.some((f) => f.videoId === song.videoId)) {
+    return { ok: false, reason: 'That song is already a Filler' };
+  }
+
+  fillerSongs.push({ ...song, id: nextSongId() });
   saveFillerSongs();
   broadcast(songStatePayload());
   return { ok: true };
@@ -619,7 +862,7 @@ async function fetchDonationTotals() {
   }
   return donations
     .filter((donation) => donation.status === 'SUCCESS')
-    .map((donation) => ({ name: donation.donatorName || 'ไม่ระบุชื่อ', amount: Number(donation.amount) || 0 }));
+    .map((donation) => ({ name: donation.donatorName || 'Anonymous', amount: Number(donation.amount) || 0 }));
 }
 
 async function handleLeaderboard(req, res) {
@@ -637,6 +880,78 @@ async function handleLeaderboard(req, res) {
   }
 }
 
+const DEFAULT_TIKTOK_LIVE_PY = process.env.TIKTOK_LIVE_PY || '/home/yusuf/Downloads/tiktok_live.py';
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; if (body.length > 1_000_000) req.destroy(); });
+    req.on('end', () => {
+      if (!body) return resolve({});
+      try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function runTiktokLive(scriptPath, args) {
+  return new Promise((resolve) => {
+    const child = spawn('python3', [scriptPath, ...args], {
+      cwd: path.dirname(scriptPath),
+      env: process.env,
+    });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (d) => (stdout += d.toString()));
+    child.stderr.on('data', (d) => (stderr += d.toString()));
+    child.on('close', (code) => resolve({ ok: code === 0, code, stdout, stderr, scriptPath }));
+    child.on('error', (err) => resolve({ ok: false, code: -1, stdout: '', stderr: err.message, scriptPath }));
+  });
+}
+
+async function handleTiktokLive(req, res, reqUrl) {
+  if (reqUrl.pathname === '/api/tiktok-live/status') {
+    const scriptPath = reqUrl.searchParams.get('script') || DEFAULT_TIKTOK_LIVE_PY;
+    const exists = fs.existsSync(scriptPath);
+    sendJson(res, 200, { available: exists, path: scriptPath, defaultPath: DEFAULT_TIKTOK_LIVE_PY });
+    return true;
+  }
+  if (reqUrl.pathname === '/api/tiktok-live/create' && req.method === 'POST') {
+    try {
+      const body = await readJsonBody(req);
+      const scriptPath = body.scriptPath || DEFAULT_TIKTOK_LIVE_PY;
+      const cookies = body.cookiesPath || path.join(path.dirname(scriptPath), 'www.tiktok.com.cookies.json');
+      const args = ['create', '--cookies', cookies];
+      if (body.title) args.push('--title', String(body.title));
+      if (body.topic) args.push('--topic', String(body.topic));
+      if (body.region) args.push('--region', String(body.region));
+      if (body.timezone) args.push('--timezone', String(body.timezone));
+      if (body.output) args.push('--output', String(body.output));
+      if (body.replay) args.push('--replay');
+      if (body.ageRestricted) args.push('--age-restricted');
+      const result = await runTiktokLive(scriptPath, args);
+      broadcast({ type: 'tiktok-live-result', action: 'create', ...result });
+      sendJson(res, 200, result);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, error: err.message });
+    }
+    return true;
+  }
+  if (reqUrl.pathname === '/api/tiktok-live/end' && req.method === 'POST') {
+    try {
+      const body = await readJsonBody(req);
+      const scriptPath = body.scriptPath || DEFAULT_TIKTOK_LIVE_PY;
+      const cookies = body.cookiesPath || path.join(path.dirname(scriptPath), 'www.tiktok.com.cookies.json');
+      const result = await runTiktokLive(scriptPath, ['end', '--cookies', cookies]);
+      broadcast({ type: 'tiktok-live-result', action: 'end', ...result });
+      sendJson(res, 200, result);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, error: err.message });
+    }
+    return true;
+  }
+  return false;
+}
+
 // Serves each overlay widget's page (see PAGE_ROUTES below) plus static
 // assets, so each one can be added as its own Browser Source in OBS/Streamlabs
 const httpServer = http.createServer((req, res) => {
@@ -644,6 +959,39 @@ const httpServer = http.createServer((req, res) => {
 
   if (reqUrl.pathname === '/api/leaderboard') {
     handleLeaderboard(req, res);
+    return;
+  }
+
+  if (reqUrl.pathname.startsWith('/api/tiktok-live/')) {
+    handleTiktokLive(req, res, reqUrl).catch((err) => sendJson(res, 500, { ok: false, error: err.message }));
+    return;
+  }
+
+  // Opens the standalone desktop chat window (bin/chatbox-window.sh) from the
+  // control room. Loopback-only on purpose: it spawns a local process, so it
+  // must not be triggerable from another device on the LAN.
+  if (reqUrl.pathname === '/api/open-window') {
+    const remote = req.socket.remoteAddress || '';
+    const isLoopback =
+      remote === '::1' || remote === '::ffff:127.0.0.1' || remote.startsWith('127.');
+    if (!isLoopback) {
+      res.writeHead(403);
+      res.end('Loopback only');
+      return;
+    }
+    const script = path.join(__dirname, 'bin', 'chatbox-window.sh');
+    if (!fs.existsSync(script)) {
+      res.writeHead(500);
+      res.end('Launcher script missing');
+      return;
+    }
+    try {
+      spawn('bash', [script], { cwd: __dirname, detached: true, stdio: 'ignore' }).unref();
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      console.error('Failed to open chat window:', err.message);
+      sendJson(res, 500, { ok: false, error: err.message });
+    }
     return;
   }
 
@@ -655,9 +1003,9 @@ const httpServer = http.createServer((req, res) => {
       return;
     }
     if (ttsProvider === 'google') {
-      proxyGoogleTts(text, res);
+      proxyGoogleTts(text, ttsLang, res);
     } else {
-      proxyLocalTts(text, 'th', res);
+      proxyLocalTts(text, ttsLang, res);
     }
     return;
   }
@@ -700,6 +1048,11 @@ const httpServer = http.createServer((req, res) => {
   // shared/ folder for code common to all of them, so this resolves the full
   // path under widgets/ rather than just the basename.
   const WIDGET_CONTENT_TYPES = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css' };
+  if (reqUrl.pathname.startsWith('/api/tiktok-live/')) {
+    handleTiktokLive(req, res, reqUrl).catch((err) => sendJson(res, 500, { ok: false, error: err.message }));
+    return;
+  }
+
   if (reqUrl.pathname.startsWith('/widgets/')) {
     const ext = path.extname(reqUrl.pathname);
     const contentType = WIDGET_CONTENT_TYPES[ext];
@@ -742,6 +1095,7 @@ const httpServer = http.createServer((req, res) => {
     '/timer': 'widgets/timer/timer.html',
     '/music': 'widgets/music/music.html',
     '/follow': 'widgets/follow/follow.html',
+    '/chatbox': 'widgets/chatbox/chatbox.html',
   };
   const page = PAGE_ROUTES[reqUrl.pathname];
   if (!page) {
@@ -838,7 +1192,7 @@ const timerState = {
   durationMs: 5 * 60000,
   endsAt: null,
   remainingMs: null,
-  message: 'พักเบรกสักครู่ เดี๋ยวกลับมา',
+  message: 'Be right back — grab a drink and stay tuned!',
 };
 
 function timerStatePayload() {
@@ -870,6 +1224,7 @@ wss.on('connection', (ws) => {
   // of picking up wherever the countdown actually is.
   ws.send(JSON.stringify(timerStatePayload()));
   ws.send(JSON.stringify({ type: 'tts-provider-state', provider: ttsProvider }));
+  ws.send(JSON.stringify({ type: 'tts-lang-state', lang: ttsLang }));
   ws.send(JSON.stringify({ type: 'tts-enabled-state', enabled: ttsEnabled }));
   ws.send(JSON.stringify({ type: 'tts-speed-state', speed: ttsSpeed }));
   ws.send(JSON.stringify({ type: 'tts-read-chance-state', chance: ttsReadChance }));
@@ -926,6 +1281,20 @@ wss.on('connection', (ws) => {
       if (!songState.enabled) {
         songState.pending = [];
         songState.approved = [];
+      }
+      broadcast(songStatePayload());
+    } else if (message.type === 'set-song-auto-approve') {
+      songState.autoApprove = !!message.enabled;
+      // Flipping it on drains anything already waiting for approval into the
+      // queue (and starts the first one if nothing is playing), so the switch
+      // isn't only about requests that arrive after it.
+      if (songState.autoApprove && songState.pending.length) {
+        songState.approved.push(...songState.pending);
+        songState.pending = [];
+        if (!songState.nowPlaying) {
+          advanceSong();
+          return;
+        }
       }
       broadcast(songStatePayload());
     } else if (message.type === 'song-approve') {
@@ -989,6 +1358,11 @@ wss.on('connection', (ws) => {
       if (message.provider !== 'local' && message.provider !== 'google') return;
       ttsProvider = message.provider;
       broadcast({ type: 'tts-provider-state', provider: ttsProvider });
+    } else if (message.type === 'set-tts-lang') {
+      const lang = String(message.lang || '').toLowerCase();
+      if (!TTS_LANGS.has(lang)) return;
+      ttsLang = lang;
+      broadcast({ type: 'tts-lang-state', lang: ttsLang });
     } else if (message.type === 'set-tts-enabled') {
       ttsEnabled = !!message.enabled;
       broadcast({ type: 'tts-enabled-state', enabled: ttsEnabled });
@@ -1010,28 +1384,31 @@ if (MOCK_MODE) {
   console.log(`MOCK mode: generating fake follows${process.env.MOCK_CHAT === '1' ? ' and chat traffic' : ''} instead of connecting to TikTok.`);
 
   const mockUsers = [
-    'nampeung_99', 'kai_gamer', 'pim.streamfan', 'tanawat_th', 'user_888', 'น้องแมว ม.4/3',
+    'nampeung_99', 'kai_gamer', 'pim.streamfan', 'tanawat_th', 'user_888', 'miko.chan',
     // Emoji nicknames: plain, ZWJ sequence, flag, skin tone, variation selector.
-    '🐱น้องแมว🐱', '👨‍👩‍👧 family', '🇹🇭 thai', '👍🏽ok', '❤️ใจ',
+    '🐱miko🐱', '👨‍👩‍👧 family', '🇮🇩 friends', '👍🏽ok', '❤️love',
   ];
   const mockComments = [
-    'สวัสดีค่า มาดูตั้งแต่ต้นเลย',
-    '5555 ตลกมาก',
-    'ไลฟ์วันนี้กี่โมงจบ',
-    'เก่งมากกก',
-    'ทำไมเสียงเบาจัง',
-    'ขอลิงก์หน่อย',
-    'อยู่มาดูตลอดเลยค่ะ',
-    'พี่ครับ ฿.฿.฿.฿.฿.฿. ตุก จะจะ ตุก จี๊ ๆ ๆ ตุก จะ จะ ตุก จี๊ ๆ ๆ ตุก จะจะ ตุก จี๊ ๆ ๆ ตุก จะจะเตร',
+    'hi hi, been here since the start',
+    'video quality looks great today',
+    'what time does the stream end?',
+    'you are so good at this',
+    'the audio is a bit quiet for me',
+    'drop the setup specs please',
+    'been watching every day this week',
+    'nice nice nice',
+    'can you play something chill next?',
+    'hello from Indonesia!',
+    // Spam/filter fixtures -- kept in their original scripts on purpose so a
+    // mock session still exercises Pattern collapse / Blocked word.
     '5555555555',
-    'สวัสดี สวัสดี สวัสดี',
-    'ฮ่าๆๆๆๆๆๆๆๆๆๆๆๆๆๆ',
-    'เก่งมาก เก่งมาก เก่งมาก เก่งมาก',
-    'จัดไป จัดไป จัดไป จัดไป จัดไป',
-    'เก่งมากกกกกกก',
-    'เก เก  เก เก เก เก เก เก เก เก เก เก เก',
+    '5555 very funny',
+    '哈哈哈哈哈哈哈哈哈哈哈哈',
+    'good good good good good',
+    'very niceeeeeeee',
+    'เ ก  เ ก เ ก เ ก เ ก เ ก',
     'ดี ก ก ก   กก ก ก  ก     ก  ปแผ ๔๑+ ๔+๒ ๔๑๒๓๑+๒๑+๒๑+๔ +ูู๑๒ ฿',
-    'เล่นเก',
+    'playing around',
   ];
 
   const mockAvatar = (nickname) => `https://i.pravatar.cc/150?u=${encodeURIComponent(nickname)}`;
@@ -1063,15 +1440,15 @@ if (MOCK_MODE) {
     // mockComments, and are cycled instead of randomised, so a short session
     // exercises every refusal path (too long, live stream, missing video,
     // duplicate) instead of depending on luck. All ids are real videos.
-    const mockSongLinks = [
-      'https://www.youtube.com/watch?v=dQw4w9WgXcQ', // ok
-      'https://youtu.be/9bZkp7q19f0', // ok -- short link form
-      'https://www.youtube.com/watch?v=kJQP7kiw5Fk', // ok
+    const mockSongs = [
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ', // ok -- full link
+      'youtu.be/9bZkp7q19f0', // ok -- short link form, no scheme
+      'lofi hip hop radio', // ok -- searched by name
       'https://www.youtube.com/watch?v=dQw4w9WgXcQ', // refused: already requested
       'https://www.youtube.com/watch?v=jfKfPfyJRdk', // refused: 1407-day live archive
       'https://www.youtube.com/watch?v=JGwWNGJdvx8', // ok
       'https://www.youtube.com/watch?v=4xDzrJKXOOY', // refused: in-progress live stream
-      'https://www.youtube.com/watch?v=fJ9rUzIMcZQ', // ok
+      'the weeknd blinding lights', // ok -- searched by name
       'https://www.youtube.com/watch?v=zzzzzzzzzzz', // refused: no such video
       'https://www.youtube.com/watch?v=OPf0YbXqDm0', // ok
       'https://www.youtube.com/shorts/60ItHLz5WEA', // ok -- shorts form
@@ -1083,16 +1460,16 @@ if (MOCK_MODE) {
     let mockSongIndex = 0;
     setInterval(() => {
       const nickname = mockUsers[mockSongIndex % mockUsers.length];
-      const link = mockSongLinks[mockSongIndex % mockSongLinks.length];
+      const song = mockSongs[mockSongIndex % mockSongs.length];
       mockSongIndex += 1;
       const message = {
         type: 'chat',
         user: nickname,
         nickname,
         avatarUrl: mockAvatar(nickname),
-        comment: `/music ${link}`,
+        comment: `m!p ${song}`,
       };
-      console.log(`[MOCK] ${nickname} ขอเพลง ${link}`);
+      console.log(`[MOCK] ${nickname} requested a song: ${song}`);
       broadcast(message);
       handleSongRequestComment(message.user, message.nickname, message.comment);
     }, 9000);
@@ -1220,7 +1597,7 @@ if (MOCK_MODE) {
       user: data.user?.uniqueId,
       nickname: data.user?.nickname,
       avatarUrl: data.user?.avatarThumb?.urlList?.[0] || '',
-      giftName: data.gift?.name || 'ของขวัญ',
+      giftName: data.gift?.name || 'Gift',
       giftImage: data.gift?.image?.urlList?.[0] || '',
       repeatCount: data.repeatCount || 1,
       diamondCount: (data.gift?.diamondCount || 0) * (data.repeatCount || 1),
@@ -1330,12 +1707,12 @@ if (MOCK_MODE) {
     console.log('Disconnected from TikTok live. Retrying...');
     liveLog('tiktok-state', { event: 'disconnected' });
     tiktokLiveConnected = false;
-    broadcast(tiktokConnectionPayload('หลุดจากไลฟ์ กำลังเชื่อมต่อใหม่...'));
+    broadcast(tiktokConnectionPayload('Disconnected from the live, reconnecting...'));
     setTimeout(connectToTikTok, 5000);
   });
 }
 
-// Exposed only so the offline test harness can drive a Comment through the
-// song request path without a live TikTok room. Nothing in the server itself
-// reads this.
-module.exports = { handleSongRequestComment };
+// Exposed only so the offline test harness (and quick manual checks) can drive
+// a Comment through the song request path without a live TikTok room. Nothing
+// in the server itself reads this.
+module.exports = { handleSongRequestComment, searchYouTubeSong };
