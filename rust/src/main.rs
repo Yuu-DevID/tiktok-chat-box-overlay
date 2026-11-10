@@ -21,14 +21,10 @@ fn main() {
     let _webview = WebViewBuilder::new()
         .with_url(&url)
         .with_transparent(true)
-        .with_ipc_handler(move |window, _req| {
-            // Allow the page to request window dragging via postMessage("drag").
-            window.start_dragging().ok();
-        })
         .build(&window)
         .expect("failed to create webview");
 
-    // Inject a drag handle: holding mouse down on the top bar drags the window.
+    // Allow the page to request window dragging via postMessage("drag").
     let _ = _webview.evaluate_script(
         r#"
         (function(){
