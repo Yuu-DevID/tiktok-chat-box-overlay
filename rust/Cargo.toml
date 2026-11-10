@@ -1,0 +1,15 @@
+[package]
+name = "tiktok-chat-overlay"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tao = "0.30"
+wry = "0.46"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
