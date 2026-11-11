@@ -5,6 +5,15 @@ use tao::window::WindowBuilder;
 use wry::WebViewBuilder;
 
 fn main() {
+    // On Wayland sessions, GTK/WebKit2GTK often needs X11 (XWayland) for correct
+    // window handle/embedding behavior in this setup. Set before window creation.
+    if env::var_os("XDG_SESSION_TYPE").as_deref() == Some(std::ffi::OsStr::new("wayland"))
+        && env::var_os("GDK_BACKEND").is_none()
+    {
+        // Safe here: single-threaded, before GTK/tao initialization.
+        unsafe { env::set_var("GDK_BACKEND", "x11"); }
+    }
+
     let url = env::var("CHATBOX_URL")
         .unwrap_or_else(|_| "http://localhost:8080/chatbox".to_string());
 
@@ -24,29 +33,14 @@ fn main() {
         .build(&window)
         .expect("failed to create webview");
 
-    // Allow the page to request window dragging via postMessage("drag").
-    let _ = _webview.evaluate_script(
-        r#"
-        (function(){
-            const bar = document.getElementById('topbar') || document.querySelector('header');
-            if(!bar) return;
-            bar.style.cursor = 'move';
-            bar.addEventListener('mousedown', (e) => {
-                if (e.button !== 0) return;
-                if (window.ipc && window.ipc.postMessage) window.ipc.postMessage('drag');
-            });
-        })();
-        "#,
-    );
-
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            *control_flow = ControlFlow::Exit;
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            _ => {}
         }
     });
 }
