@@ -464,3 +464,45 @@ if (new URLSearchParams(location.search).get("demo") === "1") {
   renderTimerState({ status: "running", endsAt: Date.now() + 4 * 60000 });
   if (feed.firstChild) togglePin(feed.firstChild);
 }
+
+// ---- setup gate / window hint -------------------------------------------
+// The chat window must never open as a blank panel: if the account has not
+// been configured yet, it says so and offers the control room. The window
+// launcher appends ?window=1 so the KDE pin hint only appears there.
+(function () {
+  const params = new URLSearchParams(location.search);
+  if (params.get("window") === "1") {
+    const hint = document.getElementById("window-hint");
+    if (hint) hint.hidden = false;
+  }
+  if (params.get("demo") === "1") return;
+
+  const gate = document.getElementById("setup-gate");
+  const openControl = document.getElementById("open-control");
+  if (openControl) {
+    openControl.addEventListener("click", async () => {
+      try {
+        const response = await fetch("/api/open-window", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ view: "control" }),
+        });
+        if (!response.ok) throw new Error();
+      } catch {
+        window.open("/", "_blank");
+      }
+    });
+  }
+
+  fetch("/api/state")
+    .then((response) => response.json())
+    .then((state) => {
+      if (!state.configured && gate) {
+        gate.hidden = false;
+        const empty = document.getElementById("empty");
+        if (empty) empty.style.display = "none";
+        if (openControl) openControl.focus();
+      }
+    })
+    .catch(() => {});
+})();

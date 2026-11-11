@@ -5,23 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="color-scheme" content="dark" />
 <title>TikTok Chat</title>
+<link rel="stylesheet" href="/assets/control.css" />
 <link rel="stylesheet" href="/widgets/chatbox/chatbox.css" />
 </head>
 <body>
+  <div class="stage" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div id="window-hint" hidden>Pin this window from the title bar: More Actions → Keep Above Others.</div>
   <header id="topbar" data-drag-region="true">
     <div class="brand">
       <span id="conn-dot" class="conn-dot"></span>
       <span id="conn-label">Connecting…</span>
     </div>
     <div class="counters">
-      <span title="Comments">💬 <b id="c-comments">0</b></span>
-      <span title="Gifts">🎁 <b id="c-gifts">0</b></span>
-      <span title="Viewers">👥 <b id="c-viewers">0</b></span>
+      <span title="Comments"><b id="c-comments">0</b> comments</span>
+      <span title="Gifts"><b id="c-gifts">0</b> gifts</span>
+      <span title="Viewers"><b id="c-viewers">0</b> watching</span>
     </div>
   </header>
 
   <div id="pin-bar">
-    <span class="pin-icon">📌</span>
+    <span class="pin-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m14 3 7 7-3 1-4 4-1 5-3-3-5 5M9 9l6 6"/></svg></span>
     <div class="pin-text"><b id="pin-nick"></b><span id="pin-comment"></span></div>
     <button type="button" id="pin-clear" title="Unpin">✕</button>
   </div>
@@ -34,29 +37,35 @@
       <input id="search" type="text" placeholder="Filter chat…" autocomplete="off" />
     </div>
     <label class="pin-auto" title="Auto-unpin after">
-      <span>⏱</span>
-      <select id="pin-auto">
+      <select id="pin-auto" aria-label="Auto-unpin after">
         <option value="0">off</option>
         <option value="15000">15s</option>
         <option value="30000" selected>30s</option>
         <option value="60000">60s</option>
       </select>
     </label>
-    <button type="button" id="jump" title="Jump to newest">↓</button>
+    <button type="button" id="jump" title="Jump to newest" aria-label="Jump to newest"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M6 14l6 6 6-6"/></svg></button>
   </div>
 
   <main id="feed-wrap">
     <div id="feed"></div>
     <div id="empty">
       <span>Waiting for chat…</span>
-      <span class="hint">Start the server with <code>npm start</code></span>
+      <span class="hint">Comments appear here as they arrive.</span>
+    </div>
+    <div id="setup-gate" hidden>
+      <div class="gate-card">
+        <b>Finish setup first</b>
+        <span>Add your TikTok username in the control room, then chat appears here.</span>
+        <button type="button" id="open-control">Open control room</button>
+      </div>
     </div>
     <div id="toast" role="status"></div>
   </main>
 
   <footer id="dock">
     <div id="now-row">
-      <span class="np-icon" id="np-icon">▶</span>
+      <span class="np-icon" id="np-icon">Now</span>
       <span id="np-title">Nothing playing</span>
       <span id="np-by"></span>
       <span class="np-hint" id="np-hint">m!p &lt;song&gt;</span>
@@ -73,14 +82,14 @@
     </div>
 
     <div id="controls">
-      <button type="button" class="toggle" id="tts-toggle" data-on="true" title="Read new comments aloud">🔊 Voice</button>
+      <button type="button" class="toggle" id="tts-toggle" data-on="true" title="Read new comments aloud">Voice</button>
       <select id="tts-lang" title="Spoken language">
         <option value="en">EN</option>
         <option value="id">ID</option>
         <option value="th">TH</option>
       </select>
-      <button type="button" class="toggle" id="req-toggle" data-on="false" title="Accept m!p song requests">🎵 Requests</button>
-      <button type="button" class="toggle" id="auto-toggle" data-on="true" title="Play accepted requests immediately">⚡ Auto</button>
+      <button type="button" class="toggle" id="req-toggle" data-on="false" title="Accept m!p song requests">Requests</button>
+      <button type="button" class="toggle" id="auto-toggle" data-on="true" title="Play accepted requests immediately">Auto</button>
     </div>
   </footer>
 

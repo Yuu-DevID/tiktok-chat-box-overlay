@@ -50,7 +50,7 @@ function isMalformedThai(text) {
   return MALFORMED_THAI_PATTERN.test(text || "") || STACKED_TONE_MARKS_PATTERN.test(text || "");
 }
 
-const SONG_COMMAND_PATTERN = /^\s*\/music(?:\s|$)/i;
+const SONG_COMMAND_PATTERN = /^\s*(?:m!p|\/music)(?:\s|$)/i;
 
 function isSongRequest(text) {
   return SONG_COMMAND_PATTERN.test(text || "");
@@ -164,7 +164,7 @@ function addEmoteLine(nickname, emoteImages, avatarUrl) {
 function addGiftLine(nickname, giftName, repeatCount, avatarUrl, giftImage) {
   const { line, bubble } = buildLine("gift-line", "@" + nickname, avatarUrl, null);
   const times = repeatCount > 1 ? ` <span class="gift-count">x${repeatCount}</span>` : "";
-  bubble.innerHTML = `<span class="comment">ส่ง ${escapeHtml(giftName)}${times}</span>`;
+  bubble.innerHTML = `<span class="comment">sent ${escapeHtml(giftName)}${times}</span>`;
 
   pushLine(chatBox, line, MAX_LINES);
 }
@@ -208,9 +208,9 @@ function handleWsMessage(data) {
   if (data.type === "gift") {
     addGiftLine(data.nickname, data.giftName, data.repeatCount, data.avatarUrl, data.giftImage);
     celebrateGift();
-    const times = data.repeatCount > 1 ? ` ${data.repeatCount} ชิ้น` : "";
+    const times = data.repeatCount > 1 ? ` x${data.repeatCount}` : "";
     const gifterName = sanitizeNicknameForSpeech(data.nickname);
-    speak(`ขอบคุณ ${gifterName} ที่ส่ง ${data.giftName}${times}`.replace(/\s+/g, " "));
+    speak(`Thanks ${gifterName} for the ${data.giftName}${times}`.replace(/\s+/g, " "));
     return;
   }
 
@@ -313,7 +313,7 @@ function playChunks(chunks, i, onDone) {
   let settled = false;
   const watchdog = setTimeout(() => {
     if (settled) return;
-    console.warn("TTS chunk timed out, ข้ามท่อนนี้ไป:", chunks[i]);
+    console.warn("TTS chunk timed out, skipping this slice:", chunks[i]);
     next();
   }, TTS_CHUNK_TIMEOUT_MS);
   cancelCurrentWatchdog = () => {
@@ -332,11 +332,11 @@ function playChunks(chunks, i, onDone) {
   };
   audio.onended = next;
   audio.onerror = () => {
-    console.warn("Google TTS โหลดเสียงไม่สำเร็จ ข้ามท่อนนี้ไป:", chunks[i]);
+    console.warn("TTS audio failed to load, skipping this slice:", chunks[i]);
     next();
   };
   audio.play().catch((err) => {
-    console.warn("audio.play() ถูกบล็อก:", err.name, err.message);
+    console.warn("audio.play() was blocked:", err.name, err.message);
     next();
   });
 }

@@ -40,10 +40,10 @@ function applyFilter() {
   });
   const hasRows = listEl.children.length > 0;
   if (!hasRows) {
-    emptyTextEl.textContent = "รอคอมเมนต์เข้ามา…";
+    emptyTextEl.textContent = "Waiting for comments…";
     emptyEl.style.display = "flex";
   } else if (visibleCount === 0) {
-    emptyTextEl.textContent = "ไม่พบคอมเมนต์ที่ตรงกับคำค้น";
+    emptyTextEl.textContent = "No comment matches that search";
     emptyEl.style.display = "flex";
   } else {
     emptyEl.style.display = "none";
@@ -223,6 +223,8 @@ function renderTimerState(state) {
 
 // ---- Song request controls ----
 const songEnabledGroup = document.getElementById("song-enabled");
+const songAutoGroup = document.getElementById("song-auto");
+const songNoticeEl = document.getElementById("song-notice");
 const songNoKeyEl = document.getElementById("song-nokey");
 const songNowEl = document.getElementById("song-now");
 const songIdleEl = document.getElementById("song-idle");
@@ -245,6 +247,24 @@ songEnabledGroup.querySelectorAll("button").forEach((btn) => {
     ws.send({ type: "set-song-enabled", enabled: btn.dataset.value === "on" });
   });
 });
+
+songAutoGroup.querySelectorAll("button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    ws.send({ type: "set-song-auto-approve", enabled: btn.dataset.value === "on" });
+  });
+});
+
+let songNoticeTimer = null;
+function renderSongNotice(data) {
+  clearTimeout(songNoticeTimer);
+  songNoticeEl.textContent = data.ok
+    ? `${data.auto ? "Playing" : "Waiting for approval"}: ${data.title} · @${data.nickname}`
+    : `Refused @${data.nickname}${data.query ? ` ("${data.query}")` : ""}: ${data.reason}`;
+  songNoticeEl.className = `song-notice show ${data.ok ? "ok" : "bad"}`;
+  songNoticeTimer = setTimeout(() => {
+    songNoticeEl.className = "song-notice";
+  }, 12000);
+}
 
 document.getElementById("song-start").addEventListener("click", () => ws.send({ type: "song-start" }));
 document.getElementById("song-skip").addEventListener("click", () => ws.send({ type: "song-skip" }));
@@ -306,12 +326,18 @@ function renderSongState(state) {
     b.classList.toggle("active", b.dataset.value === value);
   });
 
+  const autoValue = state.autoApprove ? "on" : "off";
+  songAutoGroup.dataset.value = autoValue;
+  songAutoGroup.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.value === autoValue);
+  });
+
   if (state.nowPlaying) {
     songNowEl.classList.add("show");
     songNowTitle.textContent = state.nowPlaying.title;
     songNowBy.textContent = state.nowPlaying.isFiller
       ? "(Filler)"
-      : `— ขอโดย ${state.nowPlaying.nickname}`;
+      : `— requested by ${state.nowPlaying.nickname}`;
   } else {
     songNowEl.classList.remove("show");
   }
@@ -372,6 +398,40 @@ ws = connectWS((data) => {
     fillerErrorEl.style.display = "block";
     return;
   }
+  if (data.type === "song-request-notice") {
+    renderSongNotice(data);
+    return;
+  }
   if (data.type !== "chat") return;
   addRow(data.nickname, data.comment, data.avatarUrl);
 }, setWsStatus);
+
+// ---- setup gate ---------------------------------------------------------
+(function () {
+  const gate = document.getElementById("panel-setup-gate");
+  const open = document.getElementById("panel-open-control");
+  if (open) {
+    open.addEventListener("click", async () => {
+      try {
+        const response = await fetch("/api/open-window", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ view: "control" }),
+        });
+        if (!response.ok) throw new Error();
+      } catch {
+        window.open("/", "_blank");
+      }
+    });
+  }
+  fetch("/api/state")
+    .then((response) => response.json())
+    .then((state) => {
+      if (!state.configured) {
+        document.body.dataset.configured = "0";
+        if (gate) gate.hidden = false;
+        if (open) open.focus();
+      }
+    })
+    .catch(() => {});
+})();

@@ -8,7 +8,7 @@ const topGifterRow = document.getElementById("top-gifter-row");
 const topGifterEl = document.getElementById("stat-top-gifter");
 
 function formatNumber(n) {
-  return n.toLocaleString("th-TH");
+  return n.toLocaleString("en-US");
 }
 
 function render(summary) {
@@ -30,7 +30,7 @@ function render(summary) {
   }
 
   // Replays the entrance animation on every fresh summary, not just the
-  // first one, so re-clicking "แสดงสรุป" mid-stream still reads as a
+  // first one, so re-clicking "Show summary" mid-stream still reads as a
   // deliberate refresh rather than a silent number swap.
   cardEl.classList.remove("show");
   void cardEl.offsetWidth;

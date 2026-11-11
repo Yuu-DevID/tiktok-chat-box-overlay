@@ -5,10 +5,10 @@ const clockEl = document.getElementById("clock");
 const statusEl = document.getElementById("status");
 
 const STATUS_LABELS = {
-  idle: "นับถอยหลัง",
-  running: "นับถอยหลัง",
-  paused: "หยุดชั่วคราว",
-  ended: "หมดเวลาแล้ว!",
+  idle: "Countdown",
+  running: "Countdown",
+  paused: "Paused",
+  ended: "Time is up!",
 };
 
 let tickTimer = null;

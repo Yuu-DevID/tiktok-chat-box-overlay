@@ -1,7 +1,7 @@
 // Card color themes shared by the overlay cards (top-donate, timer).
 // Pick one with ?theme=<name>; defaults to midnight.
 const THEMES = {
-  midnight: { bg: "rgba(37, 34, 47, 0.8)", border: "rgba(255, 255, 255, 0.07)", text: "#FFFFFF", sub: "#A39DB8", baht: "#B9A8FF", accent: "#7C5CFF", chipBg: "rgba(255, 255, 255, 0.1)", chipFg: "#FFFFFF" },
+  midnight: { bg: "rgba(26, 19, 48, 0.78)", border: "rgba(255, 255, 255, 0.14)", text: "#F6F3FF", sub: "rgba(246, 243, 255, 0.68)", baht: "#2BD9E6", accent: "#FF4D7A", chipBg: "rgba(255, 255, 255, 0.1)", chipFg: "#F6F3FF" },
   ocean:    { bg: "rgba(14, 30, 56, 0.8)", border: "rgba(125, 211, 252, 0.12)", text: "#FFFFFF", sub: "#9DB5D3", baht: "#7DD3FC", accent: "#38BDF8", chipBg: "rgba(125, 211, 252, 0.12)", chipFg: "#E0F2FE" },
   berry:    { bg: "rgba(58, 20, 44, 0.8)", border: "rgba(253, 164, 200, 0.12)", text: "#FFFFFF", sub: "#D8A9C1", baht: "#FDA4C8", accent: "#F472B6", chipBg: "rgba(253, 164, 200, 0.12)", chipFg: "#FCE7F3" },
   emerald:  { bg: "rgba(10, 44, 38, 0.8)", border: "rgba(110, 231, 183, 0.12)", text: "#FFFFFF", sub: "#9CC9BA", baht: "#6EE7B7", accent: "#34D399", chipBg: "rgba(110, 231, 183, 0.12)", chipFg: "#D1FAE5" },

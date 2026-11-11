@@ -1,6 +1,6 @@
 # tiktok-live-reader
 
-A browser-source overlay that connects to a TikTok LIVE room and turns chat activity into on-screen cards and Thai text-to-speech.
+A browser-source overlay and desktop chat window that connect to a TikTok LIVE room and turn chat activity into on-screen cards and spoken chat (English by default).
 
 ## Language
 
@@ -74,17 +74,24 @@ group as TTS toggle; synced to every connected client over WS.
 _Avoid_: Playback rate, voice speed
 
 **TTS provider**:
-Which backend actually synthesizes speech for the `/tts` route: `local` (self-hosted `tts-engine-project`,
-default) or `google` (Google Translate's unofficial endpoint, kept as a fallback). Switched from a control
-in the panel; server-held state (`ttsProvider` in `server.js`), in-memory only, resets to `local` on server
+Which backend actually synthesizes speech for the `/tts` route: `local` (self-hosted `tts-engine-project`)
+or `google` (Google Translate's unofficial endpoint, the default). Switched from a control in the control
+room; server-held state (`Tts` in `rust/src/state.rs`), in-memory only, resets to `google` on server
 restart. Distinct from **TTS toggle** — the toggle mutes speech entirely, this only picks which backend
 speaks when it's on.
 _Avoid_: TTS engine, voice engine
 
+**TTS language**:
+Which language TTS speaks, sent to both providers as the language code (`en`, `id`, `th`). Server-held,
+in-memory only, defaults to `en` and resets to it on restart — same convention as TTS provider. It does
+not change what language viewers type in; a Thai comment spoken with `en` selected will sound wrong, so
+the two should match the room. Synced over WS to the control room and chat window.
+_Avoid_: Voice locale, accent
+
 **Session stats summary**:
 An on-demand snapshot of total Comments, total Gifts (count + diamonds), unique interacting viewers, and
 the top gifter by diamonds, accumulated in-memory since the server started. Shown only when the streamer
-clicks "แสดงสรุป" in the panel; there is no auto-display and no persistence across a server restart.
+clicks "Show summary" in the panel or chat window; there is no auto-display and no persistence across a server restart.
 _Avoid_: Stream stats, analytics
 
 **BRB Timer**:
@@ -96,21 +103,30 @@ on server restart, no persistence.
 _Avoid_: Break screen, intermission timer
 
 **Song request**:
-A YouTube link someone wants played on stream, asked for with the `/music` command. Usually a viewer's,
-arriving as a Comment -- and when it does, it is a Comment first and stays one, shown on the chat overlay
-like any other; what makes it a Song request is that it *additionally* enters a queue. The streamer can
-make one too, which is how a Filler song gets in. A bare link is not a request: without the command it is
-an ordinary Comment, because viewers paste links they are talking about far more often than links they
-want played. The command alone isn't enough either: the video has to be embeddable, within the length cap,
-and playable in the streamer's region, or the request is refused rather than queued. A Song request never
-reaches the stream's audio on its own -- the streamer approves each one first, though their own are
-approved the moment they're made.
+A song someone wants played on stream, asked for with the `m!p` command followed by either a song name or
+a YouTube link (`/music <link>` is an accepted alias). Usually a viewer's, arriving as a Comment -- and
+when it does, it is a Comment first and stays one, shown on the chat overlay like any other; what makes it
+a Song request is that it *additionally* enters the queue. The streamer can make one too, which is how a
+Filler song gets in. Text without the command is not a request, because viewers paste links and talk about
+songs far more often than they ask for one to be played. The command alone isn't enough either: for a name
+the search has to resolve to a playable video, and for any request the video has to be embeddable, within
+the length cap, and playable in the streamer's region, or it is refused rather than queued. Under **Auto
+approval** a valid request starts playing immediately; under Manual approval it waits in the panel until
+the streamer approves it, and the streamer's own requests are approved the moment they're made.
 _Avoid_: Song, track, YouTube link, DJ request
+
+**Auto approval**:
+The song request mode where a request that passes validation is approved and started by the same message
+that made it, with no manual step. On by default; switching it off moves every new request into the
+panel's waiting list. It changes *who approves*, never *what is checked* -- validation is identical in
+both modes, and turning it on drains anything already waiting for approval. Distinct from the Song request
+toggle, which decides whether requests are accepted at all.
+_Avoid_: Jukebox mode, instant play
 
 **Filler song**:
 A Song request made by the streamer and marked to replay, so it fills the air whenever the queue of
 viewer requests runs dry. It is not a separate list with its own rules -- it goes through exactly the
-same link check and approval as any other Song request, and differs only in who asked for it and that
+same name/link resolution and approval as any other Song request, and differs only in who asked for it and that
 playing it doesn't consume it. The distinction is about *who asked and whether it repeats*, never about
 a second way into the stream's audio.
 _Avoid_: Playlist, fallback playlist, backup track, default song
@@ -120,13 +136,13 @@ _Avoid_: Playlist, fallback playlist, backup track, default song
 - A **Gift streak** resolves into exactly one Gift announcement
 - A **Repeat flood**, a **Pattern collapse**, a **Gibberish spam**, and a **Blocked word** all suppress speech only — none hides a Comment or a Gift card
 - The **TTS toggle**, when off, suppresses all speech regardless of Repeat flood, Pattern collapse, Gibberish spam, or Blocked word state
-- A **Song request** is still a Comment — being one doesn't hide it from the chat overlay, but it is never spoken: its body is a URL, which TTS reads out one character at a time
+- A **Song request** is still a Comment — being one doesn't hide it from the chat overlay, but it is never spoken: its body is a link or a search query, which TTS would read out character by character
 - A **Song request** is refused at the moment it's made (not silently dropped later) when the video fails any playability check
-- A viewer holds at most one **Song request** awaiting approval at a time. This is a silent server-side filter, not a rule viewers are told about — a viewer who pastes more links simply has the extras dropped, and is never notified
+- A viewer holds at most one **Song request** waiting to play at a time (in the waiting list, or approved and queued). This is a silent server-side filter, not a rule viewers are told about — a viewer who asks again simply has the extra request dropped, and is never notified
 - A refused **Song request** is refused silently. Nothing is shown, spoken, or sent back to the asker — the room's chat is read-only to us, so there is no channel to answer on even if we wanted one
 - The queue is the streamer's view, not the audience's. What the audience sees is only what is currently playing
 - The same video can't sit in the queue twice, or be re-requested right after playing — a second asker is refused, not queued behind the first
-- No **Song request** becomes audio without an explicit streamer approval, no matter who sent it
+- A **Song request** becomes audio either through **Auto approval** or an explicit click in the panel; there is no third path
 - Playback never begins on its own either. An idle session stays silent until the streamer starts it, even with **Filler songs** waiting — approving a request counts as starting it
 - A **Filler song** is only ever heard when no approved viewer **Song request** is waiting — a viewer request always wins
 - Playing a **Filler song** doesn't remove it; playing a viewer **Song request** does

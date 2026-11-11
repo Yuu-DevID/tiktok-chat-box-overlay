@@ -64,7 +64,7 @@ function render(state) {
   if (!song) {
     stop();
     cardEl.classList.remove("show");
-    titleEl.textContent = "ยังไม่มีเพลง";
+    titleEl.textContent = "Nothing playing";
     byEl.textContent = "";
     return;
   }
@@ -82,7 +82,7 @@ function render(state) {
   titleEl.textContent = song.title;
   // Only the currently playing song is ever shown. The queue is the streamer's
   // view, not the audience's (see CONTEXT.md).
-  byEl.textContent = song.isFiller ? song.channel || "" : `ขอโดย ${song.nickname}`;
+  byEl.textContent = song.isFiller ? song.channel || "" : `requested by ${song.nickname}`;
 }
 
 const setWsStatus = attachStatusIndicator();

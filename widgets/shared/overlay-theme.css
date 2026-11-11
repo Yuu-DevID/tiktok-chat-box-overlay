@@ -1,0 +1,165 @@
+/* Control Room tokens for the browser-source overlays.
+   Loaded last so it re-themes every widget without changing its behaviour.
+   These widgets stay transparent: OBS composites them over gameplay. */
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/fonts/bricolage-grotesque.ttf") format("truetype");
+  font-weight: 200 800;
+  font-stretch: 75% 100%;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  src: url("/fonts/hanken-grotesk.ttf") format("truetype");
+  font-weight: 300 800;
+  font-display: swap;
+}
+
+:root {
+  --ink: #f6f3ff;
+  --ink-2: rgba(246, 243, 255, 0.68);
+  --ink-3: rgba(246, 243, 255, 0.46);
+  --light-rose: #ff4d7a;
+  --light-cyan: #2bd9e6;
+  --wait: #ffb547;
+  --live: #3ddc97;
+  --fault: #ff5b5b;
+  --font-display: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
+  --font-body: "Hanken Grotesk", system-ui, sans-serif;
+  --glass: rgba(255, 255, 255, 0.07);
+  --glass-line: rgba(255, 255, 255, 0.14);
+  --glass-dark: rgba(26, 19, 48, 0.78);
+}
+
+html, body {
+  font-family: var(--font-body) !important;
+}
+
+/* ---------- /chat ---------- */
+#chat-box { gap: 6px; }
+.chat-line {
+  background: rgba(26, 19, 48, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 3px 12px 3px 7px;
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+}
+.chat-line.gift-line {
+  background: rgba(255, 181, 71, 0.12) !important;
+  border-color: rgba(255, 181, 71, 0.26);
+}
+.chat-line.member-line {
+  background: rgba(43, 217, 230, 0.08) !important;
+  border-color: rgba(43, 217, 230, 0.18);
+}
+.avatar {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.nickname {
+  color: var(--light-cyan);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+}
+.comment { font-size: 14.5px; }
+.gift-line .nickname { color: var(--wait); }
+.gift-line .comment { color: var(--wait) !important; }
+.member-line .nickname,
+.member-line .comment { color: var(--ink-2) !important; }
+.member-line { font-size: 12.5px; }
+
+/* ---------- /pinned ---------- */
+#pin-wrap .chat-line {
+  background: var(--glass);
+  border-color: var(--glass-line);
+  border-radius: 18px;
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+#pin-wrap .avatar { background: rgba(255, 255, 255, 0.12); }
+#pin-wrap .nickname {
+  color: var(--light-cyan);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+#pin-wrap .bubble,
+#pin-wrap .comment { color: var(--ink) !important; }
+.pin-progress-fill {
+  background: var(--light-rose);
+  box-shadow: none;
+}
+.pin-progress { background: rgba(255, 255, 255, 0.1); }
+
+/* ---------- /follow ---------- */
+#name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-stretch: 94%;
+}
+#sub, #thanks { font-family: var(--font-body); }
+.chip-pill span { font-family: var(--font-body); font-weight: 600; }
+
+/* ---------- /music ---------- */
+#card {
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-radius: 18px;
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 18px 36px -24px rgba(8, 4, 20, 0.7);
+}
+#eq span { background: var(--light-cyan); }
+#card.filler #eq span { background: rgba(255, 255, 255, 0.24); }
+#title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--ink);
+}
+#by { color: var(--ink-2); }
+
+/* ---------- /timer & /top-donate ---------- */
+#card {
+  border-radius: 18px;
+  border: 1px solid var(--border, var(--glass-line));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 18px 36px -24px rgba(8, 4, 20, 0.7);
+}
+#card .chip { letter-spacing: 0.04em; }
+#clock {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+#card h2, #card .title, #card .head {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+#card .name { font-family: var(--font-body); }
+#card .amount { font-family: var(--font-display); font-weight: 600; }
+
+/* ---------- /summary ---------- */
+#card {
+  background: var(--glass-dark);
+  border: 1px solid var(--glass-line);
+  border-radius: 18px;
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 18px 36px -24px rgba(8, 4, 20, 0.7);
+}
+.stat-label { color: var(--ink-2); }
+.stat-value {
+  font-family: var(--font-display);
+  font-weight: 650;
+  color: var(--ink);
+}
+.summary-title, #card h2 { font-family: var(--font-display); font-weight: 600; }
+
+/* Currency suffix on /top-donate: THB is a code, not a symbol. */
+.baht {
+  font-size: 10px !important;
+  letter-spacing: 0.08em;
+  margin-left: 3px;
+  font-weight: 600;
+}

@@ -12,7 +12,7 @@ const params = new URLSearchParams(location.search);
 // Own palette rather than shared/themes.js -- this design needs extra tones
 // (solid, light, label, rgb) the other cards don't use.
 const FOLLOW_THEMES = {
-  midnight: { bg: "rgba(37, 34, 47, 0.82)", solid: "#25222F", text: "#FFFFFF", sub: "#D2CCE6", label: "#C7B9FF", ts: "0 1px 2px rgba(0, 0, 0, 0.45)", light: "#B9A8FF", accent: "#7C5CFF", rgb: "124, 92, 255", chipFg: "#FFFFFF" },
+  midnight: { bg: "rgba(26, 19, 48, 0.82)", solid: "#1A1330", text: "#F6F3FF", sub: "rgba(246, 243, 255, 0.68)", label: "#2BD9E6", ts: "0 1px 2px rgba(0, 0, 0, 0.45)", light: "#FF4D7A", accent: "#2BD9E6", rgb: "255, 77, 122", chipFg: "#F6F3FF" },
   ocean:    { bg: "rgba(14, 30, 56, 0.82)", solid: "#0E1E38", text: "#FFFFFF", sub: "#CADCF0", label: "#93DCFD", ts: "0 1px 2px rgba(0, 0, 0, 0.45)", light: "#7DD3FC", accent: "#38BDF8", rgb: "56, 189, 248", chipFg: "#E0F2FE" },
   berry:    { bg: "rgba(58, 20, 44, 0.82)", solid: "#3A142C", text: "#FFFFFF", sub: "#F0CFDF", label: "#FDB6D3", ts: "0 1px 2px rgba(0, 0, 0, 0.45)", light: "#FDA4C8", accent: "#F472B6", rgb: "244, 114, 182", chipFg: "#FCE7F3" },
   emerald:  { bg: "rgba(10, 44, 38, 0.82)", solid: "#0A2C26", text: "#FFFFFF", sub: "#C6E8DC", label: "#86EFC4", ts: "0 1px 2px rgba(0, 0, 0, 0.45)", light: "#6EE7B7", accent: "#34D399", rgb: "52, 211, 153", chipFg: "#D1FAE5" },
@@ -211,7 +211,7 @@ function frame(now) {
 }
 
 if (params.get("demo") === "1") {
-  const SAMPLE = ["มินนี่จัง", "BossKung", "น้องฟ้า", "ปลาทูทอด", "Nutty_TH", "ต้นกล้า", "KaoNiew"];
+  const SAMPLE = ["Minnie", "BossKung", "SkyBlue", "FriedFish", "Nutty_TH", "Sprout", "KaoNiew"];
   let n = 0;
   const pushSample = () => {
     // unique key per round so the dedupe doesn't swallow the loop

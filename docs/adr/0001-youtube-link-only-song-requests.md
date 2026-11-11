@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: amended by 0002-song-requests-by-name-with-m!p.md
 ---
 
 # Song requests are YouTube links only, validated through the Data API

@@ -1,82 +1,167 @@
-# TikTok Live Chat Reader (Thai TTS + Overlay)
+# TikTok Live Reader — Overlay + Desktop Chat Window
 
-Real-time TikTok LIVE chat overlay for OBS/Streamlabs. Shows chat, gift, and viewer-join events as
-styled cards, and reads chat comments aloud in Thai.
+A Rust desktop app for TikTok LIVE: real-time chat, gifts, follows and joins in OBS overlays, a
+separate pinnable chat window, text-to-speech, and YouTube song requests from chat (`m!p`).
 
-## Install
+The app is one small binary. It serves the Control Room and every transparent overlay on
+`http://127.0.0.1:8080` and opens the desktop windows itself.
+
+## Requirements
+
+- Linux (tested on CachyOS / KDE Plasma Wayland)
+- A Chromium-based browser for the app windows: Brave, Chrome, Chromium, Edge or Vivaldi
+- Rust only if you build from source
+
+## Build
 
 ```bash
-npm install
+cd rust
+cargo build --release
 ```
 
-## Configure
-
-Copy `.env.example` to `.env` and fill in your TikTok username:
-
-```
-TIKTOK_USERNAME=your_tiktok_username
-WS_PORT=8081
-HTTP_PORT=8080
-```
-
-The account must be **currently live** or the connection will fail (it retries automatically every
-10 seconds, so you can start the server before going live).
+The binary is `rust/target/release/tiktok-live-reader`. Copy it anywhere; it has no Node or runtime
+dependency of its own.
 
 ## Run
 
 ```bash
-npm start
+./tiktok-live-reader
 ```
 
-## Test without a live session (mock mode)
+On the first run the Control Room opens on **Set up your live** instead of an empty dashboard. Fill
+in your TikTok username and press **Save & connect**; the overlay cards appear after that.
 
-```powershell
-$env:MOCK = "1"; npm start
+Useful options:
+
+```bash
+tiktok-live-reader --serve                 # server only, no window (OBS-only machines)
+tiktok-live-reader --view chatbox          # open just the chat window
+tiktok-live-reader --view panel            # open just the streamer panel
+tiktok-live-reader --port 8090             # another loopback port
+tiktok-live-reader --config ./config.json  # explicit config file
+tiktok-live-reader --mock --mock-chat      # fake events, no TikTok connection
+tiktok-live-reader --help
 ```
 
-Generates fake chat, gift, and member-join events on intervals so you can preview the overlay and hear
-TTS without an active TikTok live session.
+The account must be **currently live** or the connection retries every 10 seconds, so you can start
+the app before going live.
 
-## Use with OBS/Streamlabs
+## Setup
 
-1. Run `npm start` and leave it running.
-2. Open `http://localhost:8080` (the Control Room) in a regular browser tab — it links to every
-   overlay's Browser Source URL (`/chat`, `/pinned`, `/top-donate`, `/timer`) and holds the TTS
-   provider/on-off/speed controls.
-3. In OBS/Streamlabs: add a new **Browser Source** for each overlay page you want, using its URL from
-   the Control Room. Resize/position each one over your scene independently.
-4. Control TTS (mute, provider, speed) from the Control Room tab, not from inside OBS — the overlay
-   pages themselves have no on-page controls.
-5. TTS audio plays through the `/chat` page's own audio — capture it in OBS via that Browser Source's
-   audio output (or desktop audio capture).
+The Control Room's Setup view stores:
+
+- **TikTok username** (with or without `@`)
+- Optional **sign API key**, session id / target idc, and live cookies for rooms that need them
+- **YouTube API key** and region for song validation
+- **Song max length** (default 10 minutes)
+- EasyDonate API key for the Top donate overlay
+- Optional TikTok LIVE Studio helper paths
+
+The config is written to `./config.json` when that file already exists, otherwise to
+`$XDG_CONFIG_HOME/tiktok-live-reader/config.json` (falling back to `~/.config/...`). It is created
+with `0600` permissions. On the first Rust run, values from an existing `.env` are imported.
+
+## Desktop windows
+
+The app opens a separate window in app mode (Brave/Chrome/Chromium), not a browser tab:
+
+- **Chat window** — compact live chat, click a name to pin, filter, TTS switches, BRB timer.
+  Open it with the **Chat window** button in the Control Room, or `--view chatbox`.
+- **Streamer panel** — pin comments, approve songs, run the BRB timer and show the session summary.
+- **Control Room** — copy overlay URLs, preview them, and change setup.
+
+On KDE Plasma, pin a window with **title bar → More Actions → Keep Above Others** (or a Window Rule).
+The same works on other desktops with their own "always on top" action. Each view uses its own
+browser profile under `~/.local/share/tiktok-live-reader/window-<view>/`, so the windows behave like
+independent apps.
+
+If you prefer the embedded WebKit window, set `TIKTOK_READER_NATIVE_WINDOW=1`. It is off by default
+because WebKitGTK can render a blank surface on hybrid NVIDIA/AMD Wayland systems. Set
+`TIKTOK_READER_BROWSER=/path/to/browser` to pick a specific browser.
+
+## Use with OBS / Streamlabs
+
+1. Start the app and leave it running.
+2. Add a **Browser Source** for each overlay you want, using the URLs from the Control Room.
+3. Size and position each source independently in your scene.
+4. Control TTS from the Control Room, chat window or panel — overlay pages have no on-page controls.
+5. TTS audio plays through the `/chat` Browser Source; capture that source's audio or desktop audio.
+
+Overlay URLs:
+
+| URL | What it shows |
+| --- | --- |
+| `/chat` | Chat, gifts and joins (also plays TTS) |
+| `/pinned` | The comment you pinned, shown large |
+| `/follow` | New follower alert |
+| `/top-donate` | EasyDonate leaderboard |
+| `/timer` | BRB countdown |
+| `/summary` | Session totals, shown on demand |
+| `/music` | The YouTube player for `m!p` requests |
+
+All widgets share the Control Room design tokens (`widgets/shared/overlay-theme.css`) and stay
+transparent so OBS can composite them over gameplay.
+
+## Song requests
+
+Viewers ask in chat with either form:
+
+```text
+m!p lofi hip hop radio
+m!p https://youtu.be/dQw4w9WgXcQ
+```
+
+- `m!p <name>` reads YouTube's public results page (no quota) and validates candidates until one is
+  playable. `m!p <link>` uses the link directly.
+- Validation uses `videos.list` (1 quota unit) to check embeddable / length / region.
+- **Auto** plays valid requests immediately (default); turn it off to approve each request in the
+  Panel.
+- One request per viewer, no duplicate queue entries, and refusals are silent in TikTok chat — the
+  reason is shown only to the streamer.
+- The feature stays off until a YouTube API key is configured.
+
+## TTS
+
+The `/tts` endpoint proxies either a self-hosted engine or Google Translate's public `translate_tts`
+(free, no API key). Language (`en`, `id`, `th`), speed and on/off are synced live over the WebSocket
+from the Control Room, chat window and panel.
+
+## Mock mode
+
+```bash
+./tiktok-live-reader --mock --mock-chat
+```
+
+`--mock` fakes follows and a connected state; `--mock-chat` adds comments, gifts and joins on
+intervals. Useful for positioning OBS sources without going live.
 
 ## How it works
 
-- **`server.js`** connects to the TikTok room via `tiktok-live-connector`, normalizes chat/gift/member
-  events, and rebroadcasts them over a local WebSocket to every connected page. It also proxies TTS
-  (`/tts` — switchable at runtime between a self-hosted local engine, `tts-engine-project`, and a
-  Google Translate fallback, with playback speed also configurable) and `canvas-confetti`
-  (`/vendor/confetti.js`) so nothing hits external CDNs at runtime, and serves the EasyDonate
-  leaderboard (`/api/leaderboard`, falling back to mock data when no API key is set).
-- Each overlay is its own page, added as a separate OBS/Streamlabs Browser Source and positioned
-  independently: `/chat` (chat/gift cards + TTS), `/pinned` (a single pinned comment shown large),
-  `/top-donate` (EasyDonate leaderboard, auto-cycling), `/timer` (BRB countdown). They live under
-  `widgets/<name>/<name>.html`, sharing common helpers (`connectWS`, avatar/badge rendering, etc.) from
-  `widgets/shared/`.
-- **`/`** is the streamer-facing Control Room (`index.html`) — links to every Browser Source URL, TTS
-  provider/on-off/speed controls, and the EasyDonate leaderboard status, all synced live over the same
-  WebSocket. **`/panel`** is a second streamer-only page for pinning comments, showing the session stats
-  summary, and controlling the BRB timer.
+The binary is an Axum HTTP + WebSocket server bound to `127.0.0.1` plus a window launcher.
 
-See [`CONTEXT.md`](./CONTEXT.md) for the project's domain language (Gift streak, Repeat flood, Pattern
-collapse, etc.) and [`docs/plan-current-overlay-features.md`](./docs/plan-current-overlay-features.md)
-for the design decisions behind them.
+- `src/tiktok.rs` — connector loop, reconnect backoff, event normalization
+- `src/state.rs` — shared state, broadcast channel, stats, songs, TTS and timer payloads
+- `src/songs.rs` — `m!p` parsing, YouTube scraping/validation, queue advance
+- `src/server.rs` — routes, WebSocket sessions, static embedding, mock events
+- `src/config.rs` / `src/live_log.rs` — config file, live JSONL logs
+- `src/profanity.rs`, `src/easydonate.rs`, `src/tts.rs`
+- `src/window.rs` — app-mode windows (embedded WebKit fallback)
+
+Every overlay is a plain HTML/CSS/JS page under `widgets/`, embedded into the binary at build time.
+No bundler, no external CDN at runtime; the frontend connects to the same origin at `/ws`.
+
+The old Node implementation (`server.js`, `npm start`) is kept only for reference and is no longer
+the app.
 
 ## Notes / caveats
 
-- Uses `tiktok-live-connector` v2 (unofficial). Connecting with just a username is free, but it relies on
-  a third-party signing service ([Euler Stream](https://www.eulerstream.com/)) that has a free rate limit —
-  heavy or frequent reconnects may get throttled; a paid `signApiKey` lifts that limit.
-- Being an unofficial, reverse-engineered library, it can break if TikTok changes its internal protocol.
-- TTS uses Google Translate's public `translate_tts` endpoint (free, no API key, no official SLA). If it
-  ever becomes unreliable, switching to a paid provider (Google Cloud TTS, Azure TTS) is the fallback path.
+- Uses the unofficial TikTok protocol via
+  [`tiktok-live-connector-rs`](https://github.com/simnJS/tiktok-live-connector-rs), pinned to a
+  tested revision. TikTok protocol changes can break it.
+- Connecting with just a username relies on the free Euler Stream signing limit; a paid `signApiKey`
+  lifts it.
+- YouTube name search scrapes public results. If the markup changes, it falls back to `search.list`
+  (100 quota units) and logs a warning.
+- Session state (stats, songs, timer, TTS toggles) is in memory and resets when the app restarts.
+
+See [`CONTEXT.md`](./CONTEXT.md) for domain language and [`docs/adr/`](./docs/adr/) for decisions.

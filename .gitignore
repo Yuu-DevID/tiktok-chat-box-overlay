@@ -7,3 +7,9 @@ filler-songs.json
 extra-donors.json
 logs/
 donor-aliases.json
+
+# Desktop window browser profile / launcher state
+.window-profile/
+logs/server.pid
+rust/target/
+config.json

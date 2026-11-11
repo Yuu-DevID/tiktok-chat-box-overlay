@@ -135,7 +135,7 @@ function fillSlot(slot, entry, rank) {
     slot.badge.appendChild(chip);
     slot.fx = null;
   }
-  slot.sub.textContent = `อันดับที่ ${rank}`;
+  slot.sub.textContent = `Rank ${rank}`;
   slot.name.textContent = entry.name;
   slot.amount.textContent = formatAmount(entry.amount);
 }

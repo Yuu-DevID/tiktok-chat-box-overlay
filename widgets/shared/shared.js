@@ -3,8 +3,8 @@
 // this project, and each widget is a separate OBS/Streamlabs browser source with
 // its own JS context anyway, so there's nothing to share at runtime besides code.
 
-// Match the WS_PORT set in server.js
-const WS_URL = "ws://localhost:8081";
+// Same origin as the page: the Rust server serves HTTP and WebSocket on one port.
+const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
 
 // Returns a stable { send } wrapper rather than the raw WebSocket, since the
 // underlying socket is replaced on every auto-reconnect -- callers that hold
